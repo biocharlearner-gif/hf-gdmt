@@ -32,12 +32,26 @@ each gap with citations, and writes FHIR Tasks to close the loop. Goal: place to
 - Classify drugs via **value sets (RxNorm/ATC)**, never free-text matching, in production paths.
 - Degrade gracefully on missing/partial FHIR data → `INSUFFICIENT_DATA` / `Unknown`, never crash.
 
+## Stack
+- Vite + React 19 + TypeScript, MUI (`@mui/material`) for UI, `react-router-dom` for routing,
+  `react-hook-form` + `zod` for forms/validation. Tests: vitest.
+
 ## Commands
 - Install: `npm install`
-- Test: `npm test`  ·  Typecheck: `npm run typecheck`
+- Dev server: `npm run dev`  ·  Build: `npm run build` (runs `tsc -b` then `vite build`)
+- Test: `npm test` (`vitest run`)  ·  Lint: `npm run lint`
+- Note: there is **no** standalone `typecheck` script; type errors surface via `npm run build`.
 
 ## Key files
-- `src/engine/` — pure rule engine (types, codes, rules, engine, benefit)
-- `src/fhir/extract.ts` — FHIR → EngineInput · `src/fhir/conditions.ts` — Gate 1 · `src/fhir/writeback.ts` — Task/ServiceRequest/CarePlan
-- `src/smart/` — PKCE auth + config-driven FHIR client (read/write split)
+- `src/engine/` — pure rule engine (`types.ts`, `codes.ts`, `rules.ts`, `engine.ts`, `benefit.ts`); `engine.test.ts` here
+- `src/fhir/extract.ts` — FHIR → EngineInput · `src/fhir/writeback.ts` — Task/ServiceRequest/CarePlan builders
+  (Gate 1 condition handling currently lives in `extract.ts`/`codes.ts`; no separate `conditions.ts` yet)
+- SMART/FHIR plumbing (flat in `src/`, not a `src/smart/` dir): `smartAuth.ts` (PKCE standalone auth),
+  `fhirClient.ts` (config-driven read/write-split client), `session.ts` (in-memory token + client holder)
+- `src/data/loadPatient.ts` — fetch in-context patient → engine assessment · `src/data/writeActions.ts` — POST Task/ServiceRequest/CarePlan
 - `src/cds/service.ts` — CDS Hooks (reuses the engine) · `src/ai/rationale.ts` — grounded LLM (server-side only)
+- UI: `src/App.tsx` (routes), `src/pages/` (Launch, EhrLaunch, Callback, PatientSelect, PatientView),
+  `src/layout/` (AppLayout, navItems), `src/theme.ts` (MUI "Clinical Precision" theme)
+- `src/patients/` — standalone **Patient Management** module (CRUD against the public HAPI R4 server,
+  no SMART auth; `fhirConfig.ts`, `patientApi.ts`, `patientMapper.ts`, `patientSchema.ts`, pages + `patients.test.ts`).
+  This is separate from the Epic SMART read/write path.
