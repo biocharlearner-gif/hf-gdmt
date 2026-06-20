@@ -16,6 +16,45 @@ clinical reasoning + closing the loop + real interoperability**, demoed crisply.
 over OpenTrace: a flagship mortality-impact problem (GDMT) + a *deterministic* engine
 (safer than pure-LLM) + a quantified benefit projection.
 
+## Application workflow & entry points (login → assessment → loop closure)
+The app has **two entry flows**, both landing in the same engine-driven assessment:
+
+1. **SMART on FHIR (clinician/EHR launch) — the credibility path.**
+   - Real Epic integration via SMART standalone launch, OAuth2 + **PKCE** (public client,
+     tokens in memory only, never localStorage). This is what scores EHR-integration points.
+   - On launch we receive patient context (FHIR id) and go **straight to the patient profile**:
+     demographics (`Patient`), problem list (`Condition`), vitals/labs (`Observation`),
+     meds (`MedicationRequest`). The engine runs the two gates + 4-pillar assessment, shows the
+     care gaps with citations, and offers loop-closure writes (Task/ServiceRequest/CarePlan).
+   - Reads come from Epic; **writes go to the configured write server** (HAPI/Cerner) — read/write
+     split, both config (`VITE_FHIR_*`), never hardcoded.
+
+2. **"Continue with Demo Account" — the no-friction demo path.**
+   - A single button on the login page (no username/password fields). It is **NOT a real
+     credential check** — it simply bypasses SMART auth so judges can try the app instantly.
+     Do not invent/hardcode demo credentials; just skip auth and proceed.
+   - Lands on a **patient list** fetched from a **configurable FHIR server** (public HAPI R4;
+     base URL in `.env` / `import.meta.env.VITE_*`). This reuses the standalone Patient
+     Management module's server, separate from the Epic SMART path.
+   - List columns: name, date of birth, gender, **age (computed dynamically)**, GDMT **status**
+     (which pillars the patient is on), action items. NOTE: the status column requires running
+     the engine per patient → this is the Tier-B "population panel" and is a **stretch**, not MVP.
+   - Selecting a patient opens the **same patient profile + assessment** as flow 1.
+
+**Shared downstream journey (both flows):** patient profile → Gate 1 (HF cohort via terminology
+server) → Gate 2 (LVEF ≤ 40 from `Observation` + `DiagnosticReport`) → eligible → engine computes
+4-pillar status from meds → **create FHIR Task** per accepted gap → **CarePlan** bundles the pillars
+into one GDMT program (loop closure). **The engine decides; never auto-prescribe; every output cited.**
+
+**Where RAG/AI fits (explain-only):** the engine emits deterministic facts; a curated, cited KB is
+retrieved against them; the **server-side** LLM renders the grounded, cited rationale shown next to
+each gap. AI never picks a drug/dose/eligibility. See "Deterministic engine + RAG" below.
+
+**CDS Hooks (planned):** one `patient-view` service — when a clinician opens the patient in the EHR,
+the hook fires, our service runs the **same engine** (gates → pillars), and returns a **Card** with
+GDMT status + a SMART-launch link back into this app. It is one service driven by the hook's patient
+context, not a separate "get patient info" call.
+
 ## Eligibility: two gates
 - **Gate 1 = cohort.** "Is this an HF patient?" via active+confirmed `Condition`. Use a
   **broad** value set (SNOMED umbrella 84114007, congestive HF 42343007, all phenotype

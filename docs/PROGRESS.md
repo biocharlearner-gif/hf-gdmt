@@ -26,6 +26,11 @@ sandbox), not just when code is written.
 ## Feature checklist
 
 ### Tier A — MVP (must finish)
+- [ ] Login page with **two flows**: "Launch via SMART on FHIR" (Epic) + "Continue with Demo
+  Account" (no-friction, bypasses auth → patient list). See DECISIONS.md "Application workflow".
+- [ ] Demo-account flow: skip SMART auth → patient list from configurable FHIR server (`.env` URL)
+- [ ] Patient list page: name, DOB, gender, age (computed), GDMT status, actions
+  (status column = engine-per-patient; overlaps Tier-B population panel — may stub for MVP)
 - [x] SMART standalone launch + OAuth/PKCE (`smartAuth.ts`); patient context via `session.ts` — verify live against Epic
 - [x] Read Patient/Condition/Observation/MedicationRequest/AllergyIntolerance (`data/loadPatient.ts`)
 - [x] Engine: 4-pillar status + GDMT score (tested; verify against real data)
