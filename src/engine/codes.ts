@@ -100,6 +100,29 @@ export const THRESHOLDS = {
   onTargetFraction: 0.9,
 } as const;
 
+/**
+ * Remote-monitoring alert thresholds for HF patient-device vitals.
+ * These detect early decompensation / titration-safety concerns from home devices
+ * (scale, BP cuff, pulse, pulse-ox). Every rule must trace to an authentic source —
+ * VERIFY against the 2022 AHA/ACC/HFSA HF guideline & HFSA self-care guidance before
+ * production use. Weights are stored in kg (clinical SI); lb equivalents are noted.
+ */
+export const ALERT_THRESHOLDS = {
+  // Fluid-retention / decompensation (HFSA self-care guidance).
+  weightGain1dKg: 0.9, // ~2 lb overnight
+  weightGain7dKg: 2.3, // ~5 lb in a week
+  weightWindow1dDays: 1.5, // tolerance window for an "overnight" comparison
+  weightWindow7dDays: 7,
+  // Titration-safety vitals (GDMT initiation/up-titration limits).
+  sbpMinAlert: 90, // symptomatic hypotension limits ARNI/ACEi/ARB & SGLT2i
+  hrMinAlert: 50, // bradycardia limits beta-blocker
+  hrMaxAlert: 100, // sustained resting tachycardia
+  // General red flag (cite cautiously — not HF-specific).
+  spo2MinAlert: 90,
+  // Ignore readings older than this for alerting (days).
+  vitalAlertRecencyDays: 14,
+} as const;
+
 export function classifyMed(name: string): PillarId | null {
   const n = name.toLowerCase().trim();
   for (const [pillar, names] of Object.entries(PILLAR_INGREDIENTS) as [PillarId, string[]][]) {

@@ -42,6 +42,9 @@ sandbox), not just when code is written.
 - [~] Clinician-grade UI polish (MUI theme + AppLayout in place; PatientView still uses plain CSS classes)
 
 ### Tier C — Winning edge
+- [~] Remote-monitoring alerts from patient-device vitals (pure `src/engine/alerts.ts`: weight-gain
+  decompensation + titration-safety vitals, all cited; 10 tests). TODO: FHIR extract from device
+  `Observation`s + surface as `DetectedIssue`/`Flag`/`Task` in UI.
 - [ ] Terminology server integration (replaces hardcoded codes)
 - [ ] RAG cited explanations (engine decides, AI explains)
 - [ ] CDS Hooks patient-view card with SMART-launch link (service stub done; deploy + wire)
