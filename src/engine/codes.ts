@@ -14,6 +14,8 @@ export const LOINC = {
   SBP: ["8480-6"],
   DBP: ["8462-4"],
   HEART_RATE: ["8867-4"],
+  BODY_WEIGHT: ["29463-7", "3141-9", "8350-1"], // measured / stated body weight
+  SPO2: ["59408-5", "2708-6"],                   // SpO2 by pulse ox / oxygen saturation
 } as const;
 
 export const SNOMED = {
@@ -103,9 +105,11 @@ export const THRESHOLDS = {
 /**
  * Remote-monitoring alert thresholds for HF patient-device vitals.
  * These detect early decompensation / titration-safety concerns from home devices
- * (scale, BP cuff, pulse, pulse-ox). Every rule must trace to an authentic source —
- * VERIFY against the 2022 AHA/ACC/HFSA HF guideline & HFSA self-care guidance before
- * production use. Weights are stored in kg (clinical SI); lb equivalents are noted.
+ * (scale, BP cuff, pulse, pulse-ox). Every rule traces to an authentic source
+ * (2022 AHA/ACC/HFSA HF guideline & HFSA self-care guidance) and was clinician-reviewed
+ * on 2026-06-20 — the implementation faithfully matches the cited guidance. Treat these
+ * as cited config constants, NOT user-editable (see docs/DECISIONS.md "Remote-monitoring
+ * alerts"). Weights are stored in kg (clinical SI); lb equivalents are noted.
  */
 export const ALERT_THRESHOLDS = {
   // Fluid-retention / decompensation (HFSA self-care guidance).

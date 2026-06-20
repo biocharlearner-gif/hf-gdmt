@@ -1,4 +1,5 @@
 import type { Dated, EngineInput, MedicationFact } from "../engine/types";
+import type { AlertInput, VitalReading } from "../engine/alerts";
 import { LOINC, SNOMED, classifyMed } from "../engine/codes";
 
 /* Minimal FHIR typings — enough for extraction without pulling a full FHIR package. */
@@ -110,6 +111,52 @@ export function buildEngineInput(opts: {
       heartRate: dated(hrObs ? obsValue(hrObs) : undefined, hrObs ? obsDate(hrObs) : undefined),
     },
     flags: { angioedemaHistory },
+  };
+}
+
+/** Convert a weight Observation to kg, honoring lb units. */
+function weightKg(obs: any): number | undefined {
+  const q: Quantity | undefined = obs.valueQuantity;
+  if (typeof q?.value !== "number") return undefined;
+  const unit = (q.unit ?? "").toLowerCase();
+  if (unit.includes("lb") || unit === "[lb_av]") return q.value * 0.453592;
+  return q.value; // assume kg (or unitless → treat as kg)
+}
+
+/**
+ * Build AlertInput for the remote-monitoring alert engine from FHIR Observations.
+ * Produces a chronological home-weight series (kg) plus the latest BP / HR / SpO2.
+ * Recency filtering lives in the pure engine, so we pass values with their dates and
+ * do not drop anything here. `now` is injected to keep the engine deterministic.
+ */
+export function buildAlertInput(opts: {
+  patientId: string;
+  now?: string;
+  observations: Bundle | FhirResource[];
+}): AlertInput {
+  const obs = resources(opts.observations).filter((r) => r.resourceType === "Observation");
+
+  const weightSeriesKg: VitalReading[] = obs
+    .filter((o) => hasLoinc(o, LOINC.BODY_WEIGHT))
+    .map((o) => ({ value: weightKg(o), date: obsDate(o) }))
+    .filter((r): r is VitalReading => typeof r.value === "number" && typeof r.date === "string")
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const latest = (set: readonly string[]) =>
+    obs.filter((o) => hasLoinc(o, set))
+       .sort((a, b) => (obsDate(b) ?? "").localeCompare(obsDate(a) ?? ""))[0];
+
+  const sbpObs = latest(LOINC.SBP);
+  const hrObs = latest(LOINC.HEART_RATE);
+  const spo2Obs = latest(LOINC.SPO2);
+
+  return {
+    patientId: opts.patientId,
+    now: opts.now ?? new Date().toISOString(),
+    weightSeriesKg,
+    systolicBp: dated(sbpObs ? obsValue(sbpObs) : undefined, sbpObs ? obsDate(sbpObs) : undefined),
+    heartRate: dated(hrObs ? obsValue(hrObs) : undefined, hrObs ? obsDate(hrObs) : undefined),
+    spo2: dated(spo2Obs ? obsValue(spo2Obs) : undefined, spo2Obs ? obsDate(spo2Obs) : undefined),
   };
 }
 

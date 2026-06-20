@@ -42,9 +42,15 @@ sandbox), not just when code is written.
 - [~] Clinician-grade UI polish (MUI theme + AppLayout in place; PatientView still uses plain CSS classes)
 
 ### Tier C — Winning edge
-- [~] Remote-monitoring alerts from patient-device vitals (pure `src/engine/alerts.ts`: weight-gain
-  decompensation + titration-safety vitals, all cited; 10 tests). TODO: FHIR extract from device
-  `Observation`s + surface as `DetectedIssue`/`Flag`/`Task` in UI.
+- [~] Remote-monitoring alerts from patient-device vitals. **Thresholds clinician-reviewed &
+  finalized 2026-06-20** (see docs/DECISIONS.md "Remote-monitoring alerts"). Decided: NO user-facing
+  settings panel — cited config constants only.
+  - [x] Pure engine `src/engine/alerts.ts` (weight-gain decompensation + titration-safety vitals, cited; 10 tests).
+  - [x] Ingest: `buildAlertInput` in `src/fhir/extract.ts` (device `Observation` → `AlertInput`, kg/lb conversion).
+  - [x] Writeback builders `buildDetectedIssue`/`buildFlagForAlert`/`buildTaskForAlert` in `src/fhir/writeback.ts`.
+  - [x] Orchestration `src/data/alertActions.ts` (`loadAlerts`, `createAlertArtifacts`); 6 ingest/writeback tests.
+  - [ ] Surface alerts in PatientView UI (accept → POST artifacts) + verify writes live.
+  - [ ] FHIR `Subscription` push trigger (deployment-level, alongside CDS Hooks deploy).
 - [ ] Terminology server integration (replaces hardcoded codes)
 - [ ] RAG cited explanations (engine decides, AI explains)
 - [ ] CDS Hooks patient-view card with SMART-launch link (service stub done; deploy + wire)
@@ -64,4 +70,9 @@ sandbox), not just when code is written.
   module all implemented (17 tests passing). Remaining: terminology server, RAG/AI rationale wiring,
   CDS Hooks deploy, and live verification against real sandboxes. Note: files are flat in `src/`
   (`smartAuth.ts`, `fhirClient.ts`, `session.ts`), not the `src/smart/` dir the old docs implied.
+- 2026-06-20: Added HF remote-monitoring alert feature. Pure engine (`src/engine/alerts.ts`,
+  clinician-reviewed thresholds), FHIR ingest (`buildAlertInput`), writeback builders
+  (`DetectedIssue`/`Flag`/`Task`), and orchestration (`src/data/alertActions.ts`). 33 tests
+  passing (16 new), build clean. Decision recorded in DECISIONS.md (no settings panel; cited
+  constants). Next: surface alerts in PatientView UI + FHIR `Subscription` push trigger.
 - _YYYY-MM-DD: what got done, what's next, any blockers._

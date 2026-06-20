@@ -1,4 +1,5 @@
 import type { GdmtAssessment, PillarResult } from "../engine/types";
+import type { GdmtAlert } from "../engine/alerts";
 
 /**
  * Build FHIR R4 write-back payloads from the assessment. These are plain objects
@@ -84,4 +85,76 @@ export function buildAllTasks(assessment: GdmtAssessment, opts: BuildOpts): Reco
   return assessment.pillars
     .filter((p) => GAP_STATUSES.has(p.status))
     .map((p) => buildTaskForGap(p, opts));
+}
+
+/* ---------------------------------------------------------------------------
+ * Remote-monitoring alert write-back. The engine only DETECTS and CITES; these
+ * builders turn a fired GdmtAlert into FHIR artifacts a care team can see/act on.
+ * Nothing here orders therapy — DetectedIssue/Flag record the finding, Task asks a
+ * human to follow up. `triggeredBy` readings are echoed for provenance; pass
+ * `observationRefs` when the source Observation ids are known to link evidence.
+ * ------------------------------------------------------------------------- */
+
+export interface AlertBuildOpts extends BuildOpts {
+  observationRefs?: string[]; // references to the triggering Observation(s), if known
+}
+
+function alertEvidenceText(alert: GdmtAlert): string {
+  return alert.triggeredBy
+    .map((r) => `${r.value} @ ${r.date}`)
+    .join("; ");
+}
+
+export function buildDetectedIssue(alert: GdmtAlert, opts: AlertBuildOpts): Record<string, unknown> {
+  return {
+    resourceType: "DetectedIssue",
+    status: "final",
+    severity: alert.severity, // high | moderate | low — maps 1:1 to FHIR
+    code: { text: alert.title },
+    patient: { reference: opts.patientRef },
+    identifiedDateTime: new Date().toISOString(),
+    detail: `${alert.detail} (Source: ${alert.citationRef}) [readings: ${alertEvidenceText(alert)}]`,
+    ...(opts.observationRefs?.length
+      ? { evidence: opts.observationRefs.map((ref) => ({ detail: [{ reference: ref }] })) }
+      : {}),
+  };
+}
+
+export function buildFlagForAlert(alert: GdmtAlert, opts: AlertBuildOpts): Record<string, unknown> {
+  return {
+    resourceType: "Flag",
+    status: "active",
+    category: [{ text: "Heart failure remote monitoring" }],
+    code: { text: alert.title },
+    subject: { reference: opts.patientRef },
+    period: { start: new Date().toISOString() },
+  };
+}
+
+export function buildTaskForAlert(alert: GdmtAlert, opts: AlertBuildOpts): Record<string, unknown> {
+  const priority = alert.severity === "high" ? "urgent" : alert.severity === "moderate" ? "asap" : "routine";
+  return {
+    resourceType: "Task",
+    status: "requested",
+    intent: "order",
+    priority,
+    description: `Review HF alert: ${alert.title}`,
+    code: { text: `HF remote-monitoring alert: ${alert.vital}` },
+    for: { reference: opts.patientRef },
+    authoredOn: new Date().toISOString(),
+    ...(opts.requesterRef ? { requester: { reference: opts.requesterRef } } : {}),
+    note: [{ text: `${alert.detail} (Source: ${alert.citationRef})` }],
+  };
+}
+
+/**
+ * Convenience: every artifact for one alert — DetectedIssue (the finding) + Flag
+ * (chart banner) + Task (care-team follow-up). Caller POSTs each to the write server.
+ */
+export function buildAlertArtifacts(alert: GdmtAlert, opts: AlertBuildOpts): Record<string, unknown>[] {
+  return [
+    buildDetectedIssue(alert, opts),
+    buildFlagForAlert(alert, opts),
+    buildTaskForAlert(alert, opts),
+  ];
 }

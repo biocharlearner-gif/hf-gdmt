@@ -57,6 +57,41 @@ only retrieves and cites the evidence." Keep the RAG KB small and curated (dozen
 recommendation statements, paraphrased; pull renal/K gating rationale from KDIGO). Copyright:
 paraphrase + cite; short quotes only.
 
+## Remote-monitoring alerts (patient-device vitals)
+A deterministic alert layer on home-device vitals, on-thesis with the deep single-domain
+HF workflow (our analog to OpenTrace's abnormal-lab safety net). Same safety model as the
+GDMT engine: **the engine detects and cites; it never acts, orders, or titrates** — an
+alert only notifies the care team, a human decides.
+
+- **Scope is deliberately narrow.** Only HF-relevant vitals: weight-gain decompensation
+  (flagship) + the vitals that gate GDMT titration (SBP, HR) + SpO₂ as a general red flag.
+  No generic vitals dashboard — that would dilute the single-domain pitch.
+- **Finalized rules (clinician-reviewed 2026-06-20), each cited:**
+  - Weight gain >2.3 kg (~5 lb)/week → high; >0.9 kg (~2 lb) overnight → moderate
+    — *HFSA self-care guidance*.
+  - SBP < 90 mmHg → moderate (limits ARNI/ACEi/ARB & SGLT2i) — *AHA/ACC/HFSA 2022 §7.3.1*.
+  - HR < 50 bpm → moderate (limits beta-blocker); HR > 100 resting → low — *§7.3.2*.
+  - SpO₂ < 90% → high (general red flag, cited cautiously).
+  - Stale readings (older than the recency window) are ignored, so a device that stopped
+    reporting cannot fire a false alert.
+- **Threshold review is a one-time, offline implementation check — NOT an in-app or
+  per-alert step.** The citation proves the source; the review confirms we transcribed it
+  faithfully and picked sensible values for the judgment calls the guideline leaves open
+  (e.g. "overnight" = 1.5-day window). Done once (2026-06-20); the engine then applies the
+  approved rules automatically with no human in the loop per alert.
+- **No user-facing settings panel to edit thresholds.** Free editing would break the
+  "deterministic + guideline-coded" guarantee and make the citations dishonest. Values live
+  in one place (`ALERT_THRESHOLDS` in `codes.ts`) so they are config-shaped; any future
+  tuning is admin/deployment config with the citation attached, never an end-user free box.
+- **Runtime flow:** device reading → **stored as an `Observation`** → FHIR **`Subscription`**
+  reacts to that new Observation and notifies our service → service reads recent Observations
+  → builds `AlertInput` → `src/engine/alerts.ts` evaluates → on a hit, write back a
+  **`DetectedIssue`** ("something concerning was found", linked to the triggering Observation
+  + device for provenance) + optional **`Flag`** (chart banner) + **`Task`** (care-team
+  follow-up). The Observation exists first; the Subscription reacts to it.
+- **Status:** pure engine + tests done (`alerts.ts`, `alerts.test.ts`, 10 tests). Remaining:
+  FHIR ingest (device `Observation` → `AlertInput`) and writeback (`DetectedIssue`/`Flag`/`Task`).
+
 ## Terminology server (planned)
 `TerminologyClient` wrapping `$expand` (SNOMED ECL value-set expansion), `$validate-code`,
 `$lookup`, `$subsumes`. Pre-expand value sets once at startup → in-memory Set for fast
