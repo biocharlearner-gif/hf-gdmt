@@ -134,36 +134,6 @@ h2 { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.02em; }
 }
 .config-green { color: var(--green); }
 
-/* ─── Flow Steps ────────────────────────────────────────────────────────────── */
-.flow-steps {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0;
-}
-
-.flow-steps li {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  font-size: 0.88rem;
-  color: var(--text-muted);
-}
-
-.step-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px; height: 20px;
-  border-radius: 50%;
-  background: var(--border-dim);
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
 /* ─── Button ────────────────────────────────────────────────────────────────── */
 .connect-btn {
   display: flex;
@@ -189,6 +159,187 @@ h2 { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.02em; }
 }
 .connect-btn.loading { background: var(--border); color: var(--text-muted); }
 
+/* ─── Login page (split layout) ─────────────────────────────────────────────── */
+.login-split {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+}
+
+/* Left — branded project explainer */
+.login-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 3rem 3.5rem;
+  color: var(--text);
+  background:
+    radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--blue) 22%, transparent) 0%, transparent 55%),
+    linear-gradient(160deg, var(--surface) 0%, var(--bg) 100%);
+  border-right: 1px solid var(--border);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+
+.login-hero-title {
+  margin-top: 1.5rem;
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  max-width: 18ch;
+}
+
+.login-hero-tagline {
+  margin-top: 1rem;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  max-width: 46ch;
+}
+
+.login-features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  padding: 0;
+}
+
+.login-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.login-feature-icon {
+  flex-shrink: 0;
+  width: 34px; height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--blue) 28%, transparent);
+}
+
+.login-feature-title { font-weight: 700; font-size: 0.92rem; }
+.login-feature-body { color: var(--text-muted); font-size: 0.85rem; line-height: 1.5; }
+
+.login-hero-foot {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Right — light sign-in panel */
+.login-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: #eef2f7;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: #ffffff;
+  border: 1px solid #dde3ec;
+  border-radius: 14px;
+  padding: 2.25rem 2rem;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  color: #1b2230;
+}
+
+.login-card-badge {
+  align-self: flex-start;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1d6fd6;
+  background: #e7f0fd;
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+
+.login-card-title { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; color: #141a24; }
+.login-card-sub { color: #5a6678; font-size: 0.9rem; }
+.login-card-foot { color: #8590a0; font-size: 0.78rem; text-align: center; }
+.login-card code {
+  color: #1d6fd6;
+  background: #eef2f7;
+}
+
+/* Light buttons */
+.login-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.8rem 1.25rem;
+  font-weight: 700;
+  font-size: 0.92rem;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.15s, transform 0.1s, background 0.15s;
+}
+.login-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.login-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.login-btn-primary {
+  color: #ffffff;
+  background:
+    radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--blue) 22%, transparent) 0%, transparent 55%),
+    linear-gradient(160deg, var(--surface) 0%, var(--bg) 100%);
+}
+.login-btn-primary:hover:not(:disabled) { filter: brightness(1.15); }
+.login-btn-primary.is-loading { background: #cdd6e2; color: #5a6678; }
+
+.login-btn-secondary { background: #f1f4f9; color: #1b2230; border-color: #dde3ec; }
+.login-btn-secondary:hover:not(:disabled) { background: #e7ecf3; }
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #97a1b0;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #dde3ec;
+}
+
+.login-error {
+  background: #fdecea;
+  border: 1px solid #f5c2c0;
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.84rem;
+  color: #c0392b;
+}
+
 .spinner {
   width: 14px; height: 14px;
   border: 2px solid var(--text-muted);
@@ -206,12 +357,6 @@ h2 { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.02em; }
   padding: 0.75rem 1rem;
   font-size: 0.85rem;
   color: var(--red);
-}
-
-.footnote {
-  text-align: center;
-  font-size: 0.78rem;
-  color: var(--text-muted);
 }
 
 /* ─── Exchanging Animation ──────────────────────────────────────────────────── */

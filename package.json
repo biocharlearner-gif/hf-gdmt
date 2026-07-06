@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "seed": "node scripts/seed-hapi.mjs",
+    "alert-service": "tsx server/alertService.ts",
+    "register-subscription": "tsx server/registerSubscription.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -32,6 +35,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "tsx": "^4.20.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12",

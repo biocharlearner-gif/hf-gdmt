@@ -19,8 +19,10 @@ over OpenTrace: a flagship mortality-impact problem (GDMT) + a *deterministic* e
 ## Application workflow & entry points (login → assessment → loop closure)
 The app has **two entry flows**, both landing in the same engine-driven assessment:
 
-1. **SMART on FHIR (clinician/EHR launch) — the credibility path.**
-   - Real Epic integration via SMART standalone launch, OAuth2 + **PKCE** (public client,
+1. **SMART on FHIR (clinician launch) — the credibility path.**
+   - Real Epic integration via SMART **standalone** launch (user opens the app; `Launch.tsx`),
+     with EHR launch also supported (launched from inside Epic with a `launch` token; `EhrLaunch.tsx`).
+     Both use OAuth2 + **PKCE** (public client,
      tokens in memory only, never localStorage). This is what scores EHR-integration points.
    - On launch we receive patient context (FHIR id) and go **straight to the patient profile**:
      demographics (`Patient`), problem list (`Condition`), vitals/labs (`Observation`),
@@ -30,9 +32,10 @@ The app has **two entry flows**, both landing in the same engine-driven assessme
      split, both config (`VITE_FHIR_*`), never hardcoded.
 
 2. **"Continue with Demo Account" — the no-friction demo path.**
-   - A single button on the login page (no username/password fields). It is **NOT a real
-     credential check** — it simply bypasses SMART auth so judges can try the app instantly.
-     Do not invent/hardcode demo credentials; just skip auth and proceed.
+   - One of two buttons on the login page (`Launch.tsx` — a split two-pane layout: left = project
+     explainer with key features, right = a light sign-in card). No username/password fields. It is
+     **NOT a real credential check** — it simply bypasses SMART auth (navigates to `/patients`) so
+     judges can try the app instantly. Do not invent/hardcode demo credentials; just skip auth.
    - Lands on a **patient list** fetched from a **configurable FHIR server** (public HAPI R4;
      base URL in `.env` / `import.meta.env.VITE_*`). This reuses the standalone Patient
      Management module's server, separate from the Epic SMART path.

@@ -66,14 +66,14 @@ export function formatDobLong(iso?: string): string {
 }
 
 /** Whole-year age from an ISO birthDate, or null if unknown. */
-export function ageFromIso(iso?: string): number | null {
+export function ageFromIso(iso?: string): string | null {
   if (!iso) return null;
   const [y, m, d] = iso.split("-").map(Number);
   if (!y || !m || !d) return null;
   const now = new Date();
   let age = now.getFullYear() - y;
   if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) age--;
-  return age;
+  return age >= 0 ? age + ' yrs' : null;
 }
 
 /** Initials for an avatar, e.g. "Jane Doe" → "JD". */

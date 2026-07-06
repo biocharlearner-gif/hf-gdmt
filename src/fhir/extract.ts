@@ -150,6 +150,12 @@ export function buildAlertInput(opts: {
   const hrObs = latest(LOINC.HEART_RATE);
   const spo2Obs = latest(LOINC.SPO2);
 
+  const spo2SeriesPct: VitalReading[] = obs
+    .filter((o) => hasLoinc(o, LOINC.SPO2))
+    .map((o) => ({ value: obsValue(o), date: obsDate(o) }))
+    .filter((r): r is VitalReading => typeof r.value === "number" && typeof r.date === "string")
+    .sort((a, b) => a.date.localeCompare(b.date));
+
   return {
     patientId: opts.patientId,
     now: opts.now ?? new Date().toISOString(),
@@ -157,6 +163,7 @@ export function buildAlertInput(opts: {
     systolicBp: dated(sbpObs ? obsValue(sbpObs) : undefined, sbpObs ? obsDate(sbpObs) : undefined),
     heartRate: dated(hrObs ? obsValue(hrObs) : undefined, hrObs ? obsDate(hrObs) : undefined),
     spo2: dated(spo2Obs ? obsValue(spo2Obs) : undefined, spo2Obs ? obsDate(spo2Obs) : undefined),
+    spo2SeriesPct,
   };
 }
 

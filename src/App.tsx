@@ -1,4 +1,4 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Launch from "./pages/Launch";
 import EhrLaunch from "./pages/EhrLaunch";
 import Callback from "./pages/Callback";
@@ -7,6 +7,10 @@ import PatientView from "./pages/PatientView";
 import AppLayout from "./layout/AppLayout";
 import PatientListPage from "./patients/PatientListPage";
 import PatientViewPage from "./patients/PatientViewPage";
+import DemographicsPage from "./patients/DemographicsPage";
+import VitalsTab from "./patients/VitalsTab";
+import PatientTasksPage from "./patients/PatientTasksPage";
+import TasksPage from "./patients/TasksPage";
 
 export default function App() {
     return (
@@ -18,7 +22,13 @@ export default function App() {
             <Route path="/patient" element={<PatientView />} />
             <Route element={<AppLayout />}>
                 <Route path="/patients" element={<PatientListPage />} />
-                <Route path="/patients/:id" element={<PatientViewPage />} />
+                <Route path="/patients/:id" element={<PatientViewPage />}>
+                    <Route index element={<Navigate to="demographics" replace />} />
+                    <Route path="demographics" element={<DemographicsPage />} />
+                    <Route path="vitals" element={<VitalsTab />} />
+                    <Route path="tasks" element={<PatientTasksPage />} />
+                </Route>
+                <Route path="/tasks" element={<TasksPage />} />
             </Route>
         </Routes>
     );

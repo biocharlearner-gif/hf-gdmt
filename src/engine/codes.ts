@@ -125,6 +125,15 @@ export const ALERT_THRESHOLDS = {
   spo2MinAlert: 90,
   // Ignore readings older than this for alerting (days).
   vitalAlertRecencyDays: 14,
+  // --- Predictive / trend rules (early warning BEFORE a hard threshold breach) ---
+  // Rising-weight trend: a run of N consecutive increasing daily readings whose total
+  // gain is meaningful but still under the acute 7-day threshold → early heads-up.
+  weightRisingRun: 3, // consecutive increasing readings (>=3 points)
+  weightRisingMinTotalKg: 0.6, // cumulative gain across the run to flag (below weightGain7dKg)
+  // Declining-SpO2 trend: relative % drop across a short window while still >= the acute
+  // floor — catches a downward slide before it crosses 90%.
+  spo2DeclinePct: 4, // relative % decline over the window
+  spo2DeclineWindowDays: 3,
 } as const;
 
 export function classifyMed(name: string): PillarId | null {

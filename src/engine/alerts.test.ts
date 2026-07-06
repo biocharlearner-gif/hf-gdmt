@@ -52,6 +52,39 @@ describe("evaluateAlerts — weight", () => {
   });
 });
 
+describe("evaluateAlerts — predictive trends", () => {
+  it("fires a rising-weight trend before the acute threshold is hit", () => {
+    // 3 consecutive rises, +0.9 kg total (>=0.6, <2.3) → moderate early warning.
+    const a = evaluateAlerts(baseInput({ weightSeriesKg: series([3, 80.0], [2, 80.3], [1, 80.6], [0, 80.9]) }));
+    const t = a.find((x) => x.id === "weight-trend-rising");
+    expect(t).toBeDefined();
+    expect(t!.severity).toBe("moderate");
+    expect(a.some((x) => x.id === "weight-gain-7d")).toBe(false);
+  });
+
+  it("does NOT add the rising trend when the acute weight alert already fired", () => {
+    const a = evaluateAlerts(baseInput({ weightSeriesKg: series([7, 80], [0, 83]) }));
+    expect(a.some((x) => x.id === "weight-gain-7d")).toBe(true);
+    expect(a.some((x) => x.id === "weight-trend-rising")).toBe(false);
+  });
+
+  it("fires a declining-SpO2 trend while still above the acute floor", () => {
+    const spo2SeriesPct = series([3, 98], [2, 96], [1, 94], [0, 93]); // ~5% drop, latest 93 ≥ 90
+    const a = evaluateAlerts(baseInput({ spo2: { value: 93, date: daysAgo(0) }, spo2SeriesPct }));
+    const t = a.find((x) => x.id === "spo2-trend-decline");
+    expect(t).toBeDefined();
+    expect(t!.severity).toBe("moderate");
+    expect(a.some((x) => x.id === "hypoxia")).toBe(false);
+  });
+
+  it("prefers the acute hypoxia alert over the decline trend once below 90%", () => {
+    const spo2SeriesPct = series([3, 95], [2, 92], [1, 90], [0, 88]);
+    const a = evaluateAlerts(baseInput({ spo2: { value: 88, date: daysAgo(0) }, spo2SeriesPct }));
+    expect(a.some((x) => x.id === "hypoxia")).toBe(true);
+    expect(a.some((x) => x.id === "spo2-trend-decline")).toBe(false);
+  });
+});
+
 describe("evaluateAlerts — titration-safety vitals", () => {
   it("flags hypotension below 90 mmHg", () => {
     const a = evaluateAlerts(baseInput({ systolicBp: { value: 84, date: daysAgo(0) } }));

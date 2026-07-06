@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import PeopleAltIcon from "@mui/icons-material/PeopleAltOutlined";
+import AssignmentIcon from "@mui/icons-material/AssignmentOutlined";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonthOutlined";
 import BarChartIcon from "@mui/icons-material/BarChartOutlined";
 import SettingsIcon from "@mui/icons-material/SettingsOutlined";
@@ -18,6 +19,7 @@ export interface NavItem {
  */
 export const NAV_ITEMS: NavItem[] = [
   { label: "Patients", to: "/patients", icon: <PeopleAltIcon /> },
+  { label: "Tasks", to: "/tasks", icon: <AssignmentIcon /> },
   { label: "Appointments", to: "/appointments", icon: <CalendarMonthIcon />, disabled: true },
   { label: "Analytics", to: "/analytics", icon: <BarChartIcon />, disabled: true },
   { label: "Settings", to: "/settings", icon: <SettingsIcon />, disabled: true },

@@ -118,8 +118,8 @@ export default function PatientFormDialog({ open, patient, onClose, onSaved }: P
     />
   );
 
-  const grid = { display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr 1fr" }, gap: 2 } as const;
-  const fullSpan = { gridColumn: { sm: "1 / -1" } } as const;
+  const grid = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 2 } as const;
+  const fullSpan = { gridColumn: "1 / -1" } as const;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth slotProps={{ paper: { sx: { borderRadius: 2 } } }}>
@@ -187,8 +187,8 @@ export default function PatientFormDialog({ open, patient, onClose, onSaved }: P
 
           <SectionHeader icon={<ContactMailOutlinedIcon fontSize="small" />} title="Contact & Address" />
           <Box sx={grid}>
-            <Box sx={{ gridColumn: { sm: "span 1" } }}>{text("phone", "Phone Number")}</Box>
-            <Box sx={{ gridColumn: { sm: "span 2" } }}>{text("email", "Email Address")}</Box>
+            <Box sx={{ gridColumn: "span 1" }}>{text("phone", "Phone Number")}</Box>
+            <Box sx={{ gridColumn: "span 2" }}>{text("email", "Email Address")}</Box>
             <Box sx={fullSpan}>{text("addressLine", "Address Line")}</Box>
             {text("city", "City")}
             {text("state", "State")}

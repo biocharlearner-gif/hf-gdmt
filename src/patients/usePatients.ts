@@ -1,21 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { searchPatients } from "./patientApi";
+import { searchPatients, type HfFilter } from "./patientApi";
 import type { FhirPatient } from "./patientMapper";
 
 export interface Filters {
-  name: string;
-  birthDate: string; // ISO YYYY-MM-DD (from a date input)
-  mrn: string;
+  /** Single combined search: matches patient name, or an exact MRN if all-digits. */
+  query: string;
 }
 
-const EMPTY_FILTERS: Filters = { name: "", birthDate: "", mrn: "" };
+const EMPTY_FILTERS: Filters = { query: "" };
 
 /** Owns list state: filters, paging, data, loading/error, and refetch. */
 export function usePatients() {
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [page, setPage] = useState(0); // 0-based
   const [pageSize, setPageSize] = useState(10);
+  const [hfFilter, setHfFilterState] = useState<HfFilter>("hf");
   const [patients, setPatients] = useState<FhirPatient[]>([]);
+  const [hfIds, setHfIds] = useState<Set<string>>(new Set());
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,10 +46,11 @@ export function usePatients() {
     setLoading(true);
     setError(null);
     /* eslint-enable react-hooks/set-state-in-effect */
-    searchPatients({ ...debounced, page, pageSize })
+    searchPatients({ ...debounced, hfFilter, page, pageSize })
       .then((res) => {
         if (cancelled) return;
         setPatients(res.patients);
+        setHfIds(new Set(res.hfIds));
         setTotal(res.total);
       })
       .catch((e: unknown) => {
@@ -63,7 +65,7 @@ export function usePatients() {
     return () => {
       cancelled = true;
     };
-  }, [debounced, page, pageSize, reloadKey]);
+  }, [debounced, hfFilter, page, pageSize, reloadKey]);
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
@@ -77,7 +79,13 @@ export function usePatients() {
       setPageSize(n);
       setPage(0);
     },
+    hfFilter,
+    setHfFilter: (f: HfFilter) => {
+      setHfFilterState(f);
+      setPage(0);
+    },
     patients,
+    hfIds,
     total,
     pageCount,
     loading,

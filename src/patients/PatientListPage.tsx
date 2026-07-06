@@ -5,11 +5,15 @@ import {
   Avatar,
   Box,
   Button,
+  Chip,
   CircularProgress,
   IconButton,
+  InputAdornment,
   MenuItem,
   Paper,
   Snackbar,
+  ToggleButton,
+  ToggleButtonGroup,
   Table,
   TableBody,
   TableCell,
@@ -21,7 +25,7 @@ import {
   Typography,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
-import TuneIcon from "@mui/icons-material/Tune";
+import AddIcon from "@mui/icons-material/Add";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import { usePatients } from "./usePatients";
@@ -29,6 +33,7 @@ import {
   fullName,
   mrnOf,
   formatDobLong,
+  ageFromIso,
   initialsOf,
   avatarColors,
   type FhirPatient,
@@ -43,11 +48,14 @@ export default function PatientListPage() {
   const {
     filters,
     setFilters,
+    hfFilter,
+    setHfFilter,
     page,
     setPage,
     pageSize,
     setPageSize,
     patients,
+    hfIds,
     total,
     pageCount,
     loading,
@@ -91,74 +99,125 @@ export default function PatientListPage() {
   const to = Math.min((page + 1) * pageSize, total);
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: "auto" }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
-        <Box>
-          <Typography variant="h4">Patients</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Manage and monitor your current patient database.
-          </Typography>
-        </Box>
-        <Button variant="contained" startIcon={<SearchIcon />} onClick={() => setFormOpen(true)}>
+    <Box>
+      {/* Top app bar: spans the full main width, page title + primary action */}
+      <Paper
+        elevation={0}
+        square
+        sx={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 2,
+          px: 3,
+          py: 1.5,
+          mb: 2,
+          borderBottom: "1px solid",
+          borderColor: "divider",
+        }}
+      >
+        <Typography variant="h5" sx={{ fontWeight: 700, flexShrink: 0 }}>
+          Patients
+        </Typography>
+        <TextField
+          size="small"
+          placeholder="Search by name or MRN…"
+          value={filters.query}
+          onChange={(e) => setFilters((f) => ({ ...f, query: e.target.value }))}
+          sx={{ maxWidth: 360, flexGrow: 1, ml: "auto" }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" sx={{ color: "text.secondary" }} />
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setFormOpen(true)} sx={{ flexShrink: 0 }}>
           Add Patient
         </Button>
-      </Box>
-
-      {/* Search bar */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2 }}>
-        <Box
-          sx={{
-            display: "grid",
-            gap: 2,
-            alignItems: "end",
-            gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr auto auto" },
-          }}
-        >
-          <Labeled label="Full Name">
-            <TextField
-              size="small"
-              fullWidth
-              placeholder="e.g. John Doe"
-              value={filters.name}
-              onChange={(e) => setFilters((f) => ({ ...f, name: e.target.value }))}
-            />
-          </Labeled>
-          <Labeled label="Date of Birth">
-            <TextField
-              size="small"
-              fullWidth
-              type="date"
-              value={filters.birthDate}
-              onChange={(e) => setFilters((f) => ({ ...f, birthDate: e.target.value }))}
-            />
-          </Labeled>
-          <Labeled label="MRN">
-            <TextField
-              size="small"
-              fullWidth
-              placeholder="Medical Record #"
-              value={filters.mrn}
-              onChange={(e) => setFilters((f) => ({ ...f, mrn: e.target.value }))}
-            />
-          </Labeled>
-          <Button variant="contained" startIcon={<SearchIcon />} onClick={refetch} sx={{ height: 40 }}>
-            Search
-          </Button>
-          <Tooltip title="More filters (coming soon)">
-            <span>
-              <IconButton sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1.5, height: 40, width: 40 }}>
-                <TuneIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-        </Box>
       </Paper>
 
+      <Box sx={{ px: 3, pb: 3 }}>
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
         </Alert>
       )}
+
+      {/* Toolbar: page size (left) + cohort filter (right), above the table */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 2,
+          mb: 2,
+          flexWrap: "wrap",
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            Show
+          </Typography>
+          <TextField
+            select
+            size="small"
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            sx={{ width: 76 }}
+          >
+            {PAGE_SIZES.map((n) => (
+              <MenuItem key={n} value={n}>
+                {n}
+              </MenuItem>
+            ))}
+          </TextField>
+          <Typography variant="body2" color="text.secondary">
+            per page
+          </Typography>
+        </Box>
+
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={hfFilter}
+          onChange={(_, v) => v && setHfFilter(v)}
+          sx={{
+            bgcolor: "#e5e5e5",
+            borderRadius: 999,
+            p: 0.5,
+            gap: 0.25,
+            "& .MuiToggleButton-root": {
+              border: 0,
+              borderRadius: "999px !important",
+              textTransform: "none",
+              fontWeight: 600,
+              fontSize: "0.8rem",
+              color: "text.secondary",
+              px: 1.75,
+              py: 0.5,
+              "&:hover": { bgcolor: "rgba(0,0,0,0.04)" },
+              "&.Mui-selected": {
+                bgcolor: "#fff",
+                color: "text.primary",
+                boxShadow: "0 1px 2px rgba(15,23,42,0.12)",
+                "&:hover": { bgcolor: "#fff" },
+              },
+            },
+          }}
+        >
+          <ToggleButton value="all">All</ToggleButton>
+          <ToggleButton value="hf">
+            <Dot color="#1d6fd6" /> HF Patients
+          </ToggleButton>
+          <ToggleButton value="non-hf">
+            <Dot color="#94a3b8" /> Non-HF Patients
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
 
       {/* Patient table */}
       <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
@@ -169,20 +228,22 @@ export default function PatientListPage() {
                 <TableCell>Full Name</TableCell>
                 <TableCell>Gender</TableCell>
                 <TableCell>Date of Birth</TableCell>
-                <TableCell>Medical Record Number</TableCell>
+                <TableCell>Age</TableCell>
+                <TableCell>MRN</TableCell>
+                <TableCell>Cohort</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
+                  <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
                     <CircularProgress size={28} />
                   </TableCell>
                 </TableRow>
               ) : patients.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ py: 6, color: "text.secondary" }}>
+                  <TableCell colSpan={7} align="center" sx={{ py: 6, color: "text.secondary" }}>
                     No patients found.
                   </TableCell>
                 </TableRow>
@@ -193,7 +254,7 @@ export default function PatientListPage() {
                     <TableRow
                       key={p.id}
                       hover
-                      sx={{ cursor: "pointer", "&:hover": { bgcolor: "rgba(0,94,184,0.04)" } }}
+                      sx={{ cursor: "pointer", "&:hover": { bgcolor: "rgba(29,111,214,0.05)" } }}
                       onClick={() => navigate(`/patients/${p.id}`)}
                     >
                       <TableCell>
@@ -205,13 +266,23 @@ export default function PatientListPage() {
                             {fullName(p)}
                           </Typography>
                         </Box>
-                      </TableCell>
+                      </TableCell>                      
                       <TableCell sx={{ textTransform: "capitalize", color: "text.secondary" }}>
                         {p.gender ?? "—"}
                       </TableCell>
                       <TableCell sx={{ color: "text.secondary" }}>{formatDobLong(p.birthDate)}</TableCell>
                       <TableCell sx={{ color: "text.secondary" }}>
+                        {ageFromIso(p.birthDate) ?? "—"}
+                      </TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>
                         {mrnOf(p) ? `#${mrnOf(p)}` : "—"}
+                      </TableCell>
+                      <TableCell>
+                        {hfIds.has(p.id ?? "") ? (
+                          <Chip size="small" label="HF Patient" sx={{ bgcolor: "#e7f0fd", color: "#1d6fd6", fontWeight: 600 }} />
+                        ) : (
+                          <Chip size="small" label="Non-HF" sx={{ bgcolor: "#eef2f7", color: "#64748b", fontWeight: 600 }} />
+                        )}
                       </TableCell>
                       <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                         <Tooltip title="View">
@@ -237,7 +308,7 @@ export default function PatientListPage() {
         <Box
           sx={{
             display: "flex",
-            flexDirection: { xs: "column", md: "row" },
+            flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
             gap: 2,
@@ -247,30 +318,9 @@ export default function PatientListPage() {
             borderColor: "divider",
           }}
         >
-          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-            <Typography variant="body2" color="text.secondary">
-              Showing {from}–{to} of {total}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
-              Show
-            </Typography>
-            <TextField
-              select
-              size="small"
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              sx={{ width: 76 }}
-            >
-              {PAGE_SIZES.map((n) => (
-                <MenuItem key={n} value={n}>
-                  {n}
-                </MenuItem>
-              ))}
-            </TextField>
-            <Typography variant="body2" color="text.secondary">
-              per page
-            </Typography>
-          </Box>
+          <Typography variant="body2" color="text.secondary">
+            Showing {from}–{to} of {total}
+          </Typography>
 
           <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
             <Typography variant="body2" color="text.secondary">
@@ -291,31 +341,6 @@ export default function PatientListPage() {
           </Box>
         </Box>
       </Paper>
-
-      {/* Secondary info cards */}
-      <Box sx={{ display: "grid", gap: 3, mt: 3, gridTemplateColumns: { xs: "1fr", md: "1fr 2fr" } }}>
-        <Paper sx={{ p: 3, borderRadius: 2, bgcolor: "primary.dark", color: "primary.contrastText" }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            Patient Intake
-          </Typography>
-          <Typography variant="body2" sx={{ opacity: 0.85, mt: 1, mb: 2 }}>
-            You have 4 new patient records pending verification and archival.
-          </Typography>
-          <Button variant="contained" sx={{ bgcolor: "#fff", color: "primary.dark", "&:hover": { bgcolor: "#e2e8f0" } }}>
-            Review Now
-          </Button>
-        </Paper>
-        <Paper variant="outlined" sx={{ p: 3, borderRadius: 2 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
-            Hospital Statistics
-          </Typography>
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, 1fr)" }, gap: 2 }}>
-            <Stat label="Total Patients" value={total ? total.toLocaleString() : "—"} color="primary.main" />
-            <Stat label="Active Beds" value="84%" color="success.main" />
-            <Stat label="Emergency" value="12" color="error.main" />
-            <Stat label="Discharged" value="32" color="text.primary" />
-          </Box>
-        </Paper>
       </Box>
 
       <PatientFormDialog
@@ -351,26 +376,12 @@ export default function PatientListPage() {
   );
 }
 
-function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
+/** Small colored status dot used in the cohort filter labels. */
+function Dot({ color }: { color: string }) {
   return (
-    <Box>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-        {label}
-      </Typography>
-      {children}
-    </Box>
-  );
-}
-
-function Stat({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <Box>
-      <Typography variant="overline" color="text.secondary" sx={{ display: "block" }}>
-        {label}
-      </Typography>
-      <Typography variant="h5" sx={{ fontWeight: 700, color }}>
-        {value}
-      </Typography>
-    </Box>
+    <Box
+      component="span"
+      sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: color, display: "inline-block", mr: 0.75 }}
+    />
   );
 }

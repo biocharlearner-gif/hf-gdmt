@@ -97,6 +97,26 @@ export function buildAllTasks(assessment: GdmtAssessment, opts: BuildOpts): Reco
 
 export interface AlertBuildOpts extends BuildOpts {
   observationRefs?: string[]; // references to the triggering Observation(s), if known
+  /** The single Observation that triggered the alert (Task.focus / provenance). */
+  focusObservationRef?: string;
+  /** Initial Task.status — UI accept sets "accepted"; automated path leaves "requested". */
+  taskStatus?: string;
+  /** Care provider the Task is assigned to (Task.owner.display), e.g. the accepting clinician. */
+  ownerDisplay?: string;
+}
+
+/** Identifier system for alert-derived artifacts — enables idempotent conditional create. */
+export const ALERT_IDENTIFIER_SYSTEM = "urn:hf-gdmt:alert";
+
+/**
+ * Stable key identifying one alert occurrence: patient + rule + the triggering reading's
+ * date. Re-accepting the SAME alert yields the SAME key, so a conditional create
+ * (If-None-Exist) won't produce duplicate Tasks/DetectedIssues/Flags.
+ */
+export function alertKey(patientRef: string, alert: GdmtAlert): string {
+  const patientId = patientRef.replace(/^Patient\//, "");
+  const last = alert.triggeredBy[alert.triggeredBy.length - 1];
+  return `${patientId}:${alert.id}:${last?.date ?? ""}`;
 }
 
 function alertEvidenceText(alert: GdmtAlert): string {
@@ -105,17 +125,23 @@ function alertEvidenceText(alert: GdmtAlert): string {
     .join("; ");
 }
 
+function alertIdentifier(patientRef: string, alert: GdmtAlert, suffix: string) {
+  return [{ system: ALERT_IDENTIFIER_SYSTEM, value: `${alertKey(patientRef, alert)}:${suffix}` }];
+}
+
 export function buildDetectedIssue(alert: GdmtAlert, opts: AlertBuildOpts): Record<string, unknown> {
+  const observationRefs = opts.observationRefs ?? (opts.focusObservationRef ? [opts.focusObservationRef] : []);
   return {
     resourceType: "DetectedIssue",
+    identifier: alertIdentifier(opts.patientRef, alert, "issue"),
     status: "final",
     severity: alert.severity, // high | moderate | low — maps 1:1 to FHIR
     code: { text: alert.title },
     patient: { reference: opts.patientRef },
     identifiedDateTime: new Date().toISOString(),
     detail: `${alert.detail} (Source: ${alert.citationRef}) [readings: ${alertEvidenceText(alert)}]`,
-    ...(opts.observationRefs?.length
-      ? { evidence: opts.observationRefs.map((ref) => ({ detail: [{ reference: ref }] })) }
+    ...(observationRefs.length
+      ? { evidence: observationRefs.map((ref) => ({ detail: [{ reference: ref }] })) }
       : {}),
   };
 }
@@ -123,6 +149,7 @@ export function buildDetectedIssue(alert: GdmtAlert, opts: AlertBuildOpts): Reco
 export function buildFlagForAlert(alert: GdmtAlert, opts: AlertBuildOpts): Record<string, unknown> {
   return {
     resourceType: "Flag",
+    identifier: alertIdentifier(opts.patientRef, alert, "flag"),
     status: "active",
     category: [{ text: "Heart failure remote monitoring" }],
     code: { text: alert.title },
@@ -135,14 +162,18 @@ export function buildTaskForAlert(alert: GdmtAlert, opts: AlertBuildOpts): Recor
   const priority = alert.severity === "high" ? "urgent" : alert.severity === "moderate" ? "asap" : "routine";
   return {
     resourceType: "Task",
-    status: "requested",
+    identifier: alertIdentifier(opts.patientRef, alert, "task"),
+    status: opts.taskStatus ?? "requested",
     intent: "order",
     priority,
     description: `Review HF alert: ${alert.title}`,
     code: { text: `HF remote-monitoring alert: ${alert.vital}` },
     for: { reference: opts.patientRef },
     authoredOn: new Date().toISOString(),
+    // Link the Task to the Observation that triggered the alert (provenance/mapping).
+    ...(opts.focusObservationRef ? { focus: { reference: opts.focusObservationRef } } : {}),
     ...(opts.requesterRef ? { requester: { reference: opts.requesterRef } } : {}),
+    ...(opts.ownerDisplay ? { owner: { display: opts.ownerDisplay } } : {}),
     note: [{ text: `${alert.detail} (Source: ${alert.citationRef})` }],
   };
 }

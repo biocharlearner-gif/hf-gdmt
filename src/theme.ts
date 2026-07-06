@@ -1,4 +1,5 @@
 import { createTheme } from "@mui/material/styles";
+import { BRAND_GRADIENT } from "./brand";
 
 /**
  * "Clinical Precision" theme — a calm, authoritative medical design system.
@@ -9,9 +10,9 @@ import { createTheme } from "@mui/material/styles";
 export const theme = createTheme({
   palette: {
     mode: "light",
-    primary: { main: "#005eb8", light: "#3a82cf", dark: "#00478d", contrastText: "#ffffff" },
-    secondary: { main: "#64748b", contrastText: "#ffffff" },
-    success: { main: "#0d9488", light: "#5eead4", contrastText: "#ffffff" },
+    primary: { main: "#1d6fd6", light: "#4a90e2", dark: "#1a5fb8", contrastText: "#ffffff" },
+    secondary: { main: "#18b6a6", light: "#5ed7ca", dark: "#0f8478", contrastText: "#ffffff" },
+    success: { main: "#18b6a6", light: "#5eead4", contrastText: "#ffffff" },
     error: { main: "#ba1a1a", light: "#ffdad6", contrastText: "#ffffff" },
     warning: { main: "#b45309" },
     background: { default: "#f7f9fb", paper: "#ffffff" },
@@ -33,7 +34,25 @@ export const theme = createTheme({
     MuiPaper: { styleOverrides: { root: { backgroundImage: "none" } } },
     MuiButton: {
       defaultProps: { disableElevation: true },
-      styleOverrides: { root: { textTransform: "none", borderRadius: 6 } },
+      styleOverrides: {
+        // Brand gradient (matches the login page Epic-integration button) for primary CTAs.
+        // MUI v9 splits the old `containedPrimary` class into separate `contained` +
+        // `colorPrimary` classes, so target both. (The `containedPrimary` styleOverrides
+        // slot key is also gone in v9 — that's why this lives under `root`.)
+        root: {
+          textTransform: "none",
+          borderRadius: 6,
+          "&.MuiButton-contained.MuiButton-colorPrimary": {
+            background: BRAND_GRADIENT,
+            boxShadow: "0 4px 12px rgba(13,17,23,0.3)",
+            "&:hover": {
+              background: BRAND_GRADIENT,
+              filter: "brightness(1.15)",
+              boxShadow: "0 6px 16px rgba(13,17,23,0.35)",
+            },
+          },
+        },
+      },
     },
     MuiOutlinedInput: {
       styleOverrides: {

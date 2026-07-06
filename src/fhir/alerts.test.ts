@@ -69,9 +69,12 @@ describe("alert writeback builders", () => {
   const alert: GdmtAlert = {
     id: "weight-gain-7d",
     severity: "high",
+    kind: "threshold",
     vital: "weight",
     title: "Possible fluid retention — weight gain",
     detail: "Weight rose 3 kg over 7 days.",
+    observed: "+3 kg over 7 day(s)",
+    threshold: "≥ 2.3 kg / 7 day(s)",
     citationRef: "HFSA-selfcare-weight-monitoring",
     triggeredBy: [
       { value: 80, date: daysAgo(7) },
