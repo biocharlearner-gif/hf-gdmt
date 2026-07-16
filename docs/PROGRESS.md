@@ -232,4 +232,10 @@ sandbox), not just when code is written.
   debounced autosave; the in-progress state now has a **"Save Task Notes"** button (disabled unless
   the notes changed) that PUTs only the note — status is untouched. Verified live (save gating, note
   persisted, status stayed in-progress; all 4 seeded tasks render). 49 tests green, build clean.
+- 2026-07-16: Enabled `strict` + `noUncheckedIndexedAccess` in tsconfig.app/node (CLAUDE.md
+  claimed both; configs set neither). Only 4 errors, all in `src/patients/`; fixed. Added a
+  `typecheck` script (`tsc -b`), which CLAUDE.md documented but package.json never defined.
+  The alerts/vitals/tasks code merged from `docs/sync-with-code` was already strict-clean —
+  zero errors across the combined tree. 49 tests green, build clean. Lint still fails repo-wide
+  (~32 errors, mostly `no-explicit-any` in FHIR-facing code) — untouched, not yet a gate.
 - _YYYY-MM-DD: what got done, what's next, any blockers._

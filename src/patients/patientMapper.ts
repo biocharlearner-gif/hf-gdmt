@@ -84,16 +84,23 @@ export function initialsOf(p: FhirPatient): string {
   return (first + last).toUpperCase() || "?";
 }
 
-const AVATAR_COLORS = ["#dbeafe", "#cffafe", "#dcfce7", "#fef9c3", "#fae8ff", "#ffe4e6", "#e0e7ff"];
-const AVATAR_FG = ["#1e40af", "#0e7490", "#15803d", "#854d0e", "#86198f", "#9f1239", "#3730a3"];
+const AVATAR_PALETTE = [
+  { bg: "#dbeafe", fg: "#1e40af" },
+  { bg: "#cffafe", fg: "#0e7490" },
+  { bg: "#dcfce7", fg: "#15803d" },
+  { bg: "#fef9c3", fg: "#854d0e" },
+  { bg: "#fae8ff", fg: "#86198f" },
+  { bg: "#ffe4e6", fg: "#9f1239" },
+  { bg: "#e0e7ff", fg: "#3730a3" },
+] as const;
 
 /** Deterministic pale avatar background/foreground from a patient's id/name. */
 export function avatarColors(p: FhirPatient): { bg: string; fg: string } {
   const key = (p.id ?? mrnOf(p) ?? fullName(p)) || "?";
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  const idx = h % AVATAR_COLORS.length;
-  return { bg: AVATAR_COLORS[idx], fg: AVATAR_FG[idx] };
+  const idx = h % AVATAR_PALETTE.length;
+  return AVATAR_PALETTE[idx] ?? AVATAR_PALETTE[0];
 }
 
 /** Build a FHIR Patient from validated form values. Preserves id when editing. */
