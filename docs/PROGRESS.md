@@ -47,4 +47,8 @@ sandbox), not just when code is written.
 - _Add discovered gotchas here as you go._
 
 ## Session log
+- 2026-07-16: Enabled `strict` + `noUncheckedIndexedAccess` in tsconfig.app/node (CLAUDE.md
+  claimed both; configs set neither). Only 4 errors, all in `src/patients/`; fixed. Added a
+  `typecheck` script. Typecheck + build + 17 tests green. Lint still fails repo-wide
+  (32 errors, mostly `no-explicit-any` in FHIR-facing code) — untouched, not yet a gate.
 - _YYYY-MM-DD: what got done, what's next, any blockers._

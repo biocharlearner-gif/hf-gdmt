@@ -62,3 +62,10 @@ paraphrase + cite; short quotes only.
 `$lookup`, `$subsumes`. Pre-expand value sets once at startup → in-memory Set for fast
 membership checks; cache. Servers: `tx.fhir.org` (easiest) or a hosted Snowstorm (full ECL).
 SNOMED licensing applies (India has a national license). Keep the hardcoded value set as fallback.
+
+## TypeScript strictness
+`strict` + `noUncheckedIndexedAccess` are on in both tsconfigs — CLAUDE.md always claimed this,
+the configs just never set it. For a clinical engine, the flags that catch an unchecked
+`labs[0]` or a silently-undefined LVEF are exactly the ones worth paying for. Turning them on
+cost 4 errors, so there was no reason to weaken the convention instead.
+`npm run typecheck` (`tsc -b`) now exists so the documented command is real.

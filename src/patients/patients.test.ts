@@ -73,8 +73,8 @@ describe("mapper round-trip", () => {
   it("maps form → FHIR Patient", () => {
     const p = formToPatient({ ...valid, middleName: "James" }, "abc");
     expect(p.id).toBe("abc");
-    expect(p.name?.[0].given).toEqual(["Robert", "James"]);
-    expect(p.name?.[0].family).toBe("Mendez");
+    expect(p.name?.[0]?.given).toEqual(["Robert", "James"]);
+    expect(p.name?.[0]?.family).toBe("Mendez");
     expect(p.birthDate).toBe("1980-01-15");
     expect(mrnOf(p)).toBe("MRN-12345");
     expect(fullName(p)).toBe("Robert James Mendez");
