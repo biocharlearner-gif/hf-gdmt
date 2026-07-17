@@ -100,6 +100,8 @@ export const THRESHOLDS = {
   lvefRecencyDays: 365,
   // dose-adequacy: >= this fraction of target counts as ON_TARGET
   onTargetFraction: 0.9,
+  // Up-titrate a sub-target pillar if it has sat below target longer than this (days).
+  titrationIntervalDays: 14,
 } as const;
 
 /**

@@ -33,6 +33,8 @@ export interface MedicationFact {
   /** Total daily dose in mg if parseable, else undefined. */
   dailyDoseMg?: number;
   active: boolean;
+  /** When the prescription was authored (ISO); from MedicationRequest.authoredOn. */
+  startedOn?: string;
 }
 
 export interface EngineInput {
@@ -61,7 +63,9 @@ export interface PillarResult {
   label: string;
   status: PillarStatus;
   /** Detected agent if patient is on this pillar. */
-  agent?: { name: string; dailyDoseMg?: number; targetDoseMg?: number; doseFraction?: number };
+  agent?: { name: string; dailyDoseMg?: number; targetDoseMg?: number; doseFraction?: number; startedOn?: string };
+  /** Time-on-therapy for an on-pillar agent + whether up-titration is overdue. */
+  titration?: { startedOn?: string; daysOnTherapy?: number; overdue: boolean; intervalDays: number };
   /** Human-readable explanation of the status. */
   reason: string;
   /** The lab/vital values the decision was based on (for transparency). */

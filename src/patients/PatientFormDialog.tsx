@@ -17,6 +17,7 @@ import {
 } from "@mui/material";
 import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
 import ContactMailOutlinedIcon from "@mui/icons-material/ContactMailOutlined";
+import MedicalInformationOutlinedIcon from "@mui/icons-material/MedicalInformationOutlined";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import {
@@ -24,8 +25,12 @@ import {
   emptyPatientForm,
   type PatientFormValues,
 } from "./patientSchema";
-import { formToPatient, patientToForm, type FhirPatient } from "./patientMapper";
-import { createPatient, mrnExists, updatePatient } from "./patientApi";
+import { formToPatient, formToCondition, patientToForm, type FhirPatient } from "./patientMapper";
+import { createPatient, createResource, mrnExists, updatePatient } from "./patientApi";
+import { isHfCode } from "./hfCohort";
+import { HF_COHORT_HINT, NON_HF_COHORT_HINT } from "./problemList";
+import DiagnosisAutocomplete from "./DiagnosisAutocomplete";
+import type { ConceptOption } from "./conditionSearch";
 
 interface Props {
   open: boolean;
@@ -67,6 +72,7 @@ export default function PatientFormDialog({ open, patient, onClose, onSaved }: P
     handleSubmit,
     reset,
     setError,
+    clearErrors,
     formState: { errors },
   } = useForm<PatientFormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -75,12 +81,45 @@ export default function PatientFormDialog({ open, patient, onClose, onSaved }: P
     mode: "onTouched",
   });
 
-  // Reset the form whenever the dialog opens (prefill on edit, blank on add).
+  // The diagnosis picked from the terminology search + its computed cohort. Held in
+  // component state (not the RHF form) since it's a coded concept, not a text field.
+  const [concept, setConcept] = useState<ConceptOption | null>(null);
+  const [cohort, setCohort] = useState<"hf" | "non-hf" | null>(null);
+  const [classifying, setClassifying] = useState(false);
+
+  // Reset the form (and the diagnosis) whenever the dialog opens.
   useEffect(() => {
-    if (open) reset(patient ? patientToForm(patient) : emptyPatientForm);
+    if (open) {
+      reset(patient ? patientToForm(patient) : emptyPatientForm);
+      setConcept(null);
+      setCohort(null);
+    }
   }, [open, patient, reset]);
 
+  // Classify the chosen diagnosis HF vs Non-HF against the cohort value set.
+  const handleConceptChange = async (next: ConceptOption | null) => {
+    setConcept(next);
+    clearErrors("problem");
+    if (!next) {
+      setCohort(null);
+      return;
+    }
+    setClassifying(true);
+    try {
+      setCohort((await isHfCode(next)) ? "hf" : "non-hf");
+    } catch {
+      setCohort("non-hf"); // if the tx check fails, don't over-claim HF membership
+    } finally {
+      setClassifying(false);
+    }
+  };
+
   const onSubmit = async (values: PatientFormValues) => {
+    // Diagnosis is required only in Add mode (the Edit flow doesn't manage it).
+    if (!isEdit && !concept) {
+      setError("problem", { message: "Select the patient's primary diagnosis" });
+      return;
+    }
     setSubmitting(true);
     try {
       // MRN uniqueness is a server check, not part of zod.
@@ -93,8 +132,17 @@ export default function PatientFormDialog({ open, patient, onClose, onSaved }: P
         await updatePatient(patient.id, resource);
         onSaved("Patient updated");
       } else {
-        await createPatient(resource);
-        onSaved("Patient added");
+        const created = await createPatient(resource);
+        // Write the diagnosis as a coded Condition so the patient shows up and is
+        // classified HF / Non-HF. Patient already exists, so a Condition failure is
+        // a soft warning rather than a hard error.
+        try {
+          const condition = created.id ? formToCondition(concept, created.id) : null;
+          if (condition) await createResource(condition);
+          onSaved("Patient added");
+        } catch {
+          onSaved("Patient added, but the diagnosis could not be saved");
+        }
       }
       onClose();
     } catch (e) {
@@ -195,6 +243,42 @@ export default function PatientFormDialog({ open, patient, onClose, onSaved }: P
             {text("zip", "Zip Code")}
             <Box sx={fullSpan}>{text("country", "Country")}</Box>
           </Box>
+
+          {/* Problem list — Add mode only. Drives whether the patient is HF or Non-HF,
+              and (via the demo tag) whether they appear on the roster at all. */}
+          {!isEdit && (
+            <>
+              <Box sx={{ height: 24 }} />
+              <SectionHeader
+                icon={<MedicalInformationOutlinedIcon fontSize="small" />}
+                title="Problem List / Diagnosis"
+              />
+
+              <DiagnosisAutocomplete
+                value={concept}
+                cohort={cohort}
+                classifying={classifying}
+                error={errors.problem?.message as string | undefined}
+                onChange={handleConceptChange}
+              />
+
+              {/* Explain what the two cohorts mean (requirement #2). */}
+              <Alert severity="info" icon={false} sx={{ mt: 2, bgcolor: "#f5f8fd" }}>
+                <Typography variant="body2" sx={{ mb: 0.5 }}>
+                  <Box component="span" sx={{ fontWeight: 700, color: "#1d6fd6" }}>
+                    HF Patient
+                  </Box>{" "}
+                  — {HF_COHORT_HINT}
+                </Typography>
+                <Typography variant="body2">
+                  <Box component="span" sx={{ fontWeight: 700, color: "#64748b" }}>
+                    Non-HF Patient
+                  </Box>{" "}
+                  — {NON_HF_COHORT_HINT}
+                </Typography>
+              </Alert>
+            </>
+          )}
 
           {errors.root?.message && (
             <Alert severity="error" sx={{ mt: 2 }}>

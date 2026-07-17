@@ -59,3 +59,44 @@ describe("evaluateGdmt", () => {
     expect(a.labsNeeded.length).toBeGreaterThan(0);
   });
 });
+
+describe("evaluateGdmt — titration timing", () => {
+  // NOW is 2026-06-16; carvedilol 12.5 of a 50 mg target is ON_SUBTARGET.
+  const daysBefore = (n: number) =>
+    new Date(new Date(NOW).getTime() - n * 24 * 60 * 60 * 1000).toISOString();
+  const subTargetBB = (startedOn?: string) => ({
+    name: "carvedilol", pillar: "BetaBlocker" as const, dailyDoseMg: 12.5, active: true, startedOn,
+  });
+  const bbOf = (input: Parameters<typeof baseInput>[0]) =>
+    evaluateGdmt(baseInput(input)).pillars.find((p) => p.id === "BetaBlocker")!;
+
+  it("flags a sub-target agent past the titration interval as overdue", () => {
+    const bb = bbOf({ medications: [subTargetBB(daysBefore(30))] });
+    expect(bb.status).toBe("ON_SUBTARGET");
+    expect(bb.titration).toBeDefined();
+    expect(bb.titration!.overdue).toBe(true);
+    expect(bb.titration!.daysOnTherapy).toBe(30);
+    expect(bb.agent!.startedOn).toBe(daysBefore(30));
+  });
+
+  it("does not flag a recently started sub-target agent", () => {
+    const bb = bbOf({ medications: [subTargetBB(daysBefore(5))] });
+    expect(bb.status).toBe("ON_SUBTARGET");
+    expect(bb.titration!.overdue).toBe(false);
+  });
+
+  it("never flags an on-target agent regardless of how long ago it started", () => {
+    const bb = bbOf({
+      medications: [{ name: "carvedilol", pillar: "BetaBlocker", dailyDoseMg: 50, active: true, startedOn: daysBefore(365) }],
+    });
+    expect(bb.status).toBe("ON_TARGET");
+    expect(bb.titration!.overdue).toBe(false);
+  });
+
+  it("omits titration when the agent has no start date", () => {
+    const bb = bbOf({ medications: [subTargetBB(undefined)] });
+    expect(bb.status).toBe("ON_SUBTARGET");
+    expect(bb.titration).toBeUndefined();
+    expect(bb.agent!.startedOn).toBeUndefined();
+  });
+});

@@ -18,16 +18,19 @@
  *
  * Run:  npm run seed            (defaults to hapi.fhir.org/baseR4)
  *       FHIR_BASE=<url> npm run seed
+ *       FHIR_BASE=<tenant> FHIR_TOKEN=<bearer> npm run seed   (authenticated tenant)
  *
  * Mirrors constants in src/patients/fhirConfig.ts and src/engine/codes.ts — kept
  * inline so this script has zero build/import coupling.
  */
 
-const BASE = (process.env.FHIR_BASE || "https://hapi.fhir.org/baseR4").replace(/\/$/, "");
+const BASE = (process.env.FHIR_BASE || process.env.MEDBLOCKS_FHIR_BASE || "https://hapi.fhir.org/baseR4").replace(/\/$/, "");
+const TOKEN = process.env.FHIR_TOKEN || process.env.MEDBLOCKS_TOKEN;
 
 const SNOMED = "http://snomed.info/sct";
 const ICD10 = "http://hl7.org/fhir/sid/icd-10";
 const LOINC = "http://loinc.org";
+const RXNORM = "http://www.nlm.nih.gov/research/umls/rxnorm";
 const MRN_SYSTEM = "urn:hf-gdmt:mrn";
 const MRN_TYPE = { system: "http://terminology.hl7.org/CodeSystem/v2-0203", code: "MR" };
 const COND_SYSTEM = "urn:hf-gdmt:cond";
@@ -107,6 +110,58 @@ function conditionEntry(p, i) {
   };
 }
 
+/**
+ * Secondary problems, on top of each patient's primary (cohort-defining) Condition, so
+ * the Clinical tab's Active/Resolved toggle has both sides to demonstrate.
+ *
+ * Two deliberate constraints: (1) the primary Condition in PEOPLE is never touched — the
+ * Gate 1 cohort query keys off it; (2) every code here is non-HF, so none of these can
+ * accidentally pull a patient into the HF cohort.
+ */
+const EXTRA_PROBLEMS = {
+  "HF-001": [
+    { code: { system: SNOMED, code: "38341003", display: "Hypertensive disorder" }, clinical: "active", onset: 2600 },
+    { code: { system: SNOMED, code: "195967001", display: "Asthma" }, clinical: "resolved", onset: 9000, abatement: 700 },
+  ],
+  "HF-002": [
+    { code: { system: SNOMED, code: "73211009", display: "Diabetes mellitus" }, clinical: "active", onset: 1800 },
+    { code: { system: SNOMED, code: "49436004", display: "Atrial fibrillation" }, clinical: "resolved", onset: 1100, abatement: 400 },
+  ],
+  "HF-003": [
+    { code: { system: SNOMED, code: "709044004", display: "Chronic kidney disease" }, clinical: "active", onset: 1200 },
+    { code: { system: ICD10, code: "D50.9", display: "Iron deficiency anaemia, unspecified" }, clinical: "resolved", onset: 600, abatement: 200 },
+  ],
+  "HF-005": [
+    { code: { system: SNOMED, code: "13645005", display: "Chronic obstructive lung disease" }, clinical: "inactive", onset: 1500 },
+  ],
+};
+
+function extraProblemEntries(p, i) {
+  const extras = EXTRA_PROBLEMS[p.mrn];
+  if (!extras) return [];
+  return extras.map((x, k) => {
+    const condId = `cond-${p.mrn}-x${k}`;
+    const resource = tagged({
+      resourceType: "Condition",
+      identifier: [{ system: COND_SYSTEM, value: condId }],
+      clinicalStatus: { coding: [{ system: CLINICAL, code: x.clinical }] },
+      verificationStatus: { coding: [{ system: VERIFICATION, code: "confirmed" }] },
+      category: [{
+        coding: [{ system: "http://terminology.hl7.org/CodeSystem/condition-category", code: "problem-list-item" }],
+      }],
+      code: { coding: [{ system: x.code.system, code: x.code.code, display: x.code.display }], text: x.code.display },
+      subject: { reference: `urn:uuid:patient-${i}` },
+      onsetDateTime: daysAgo(x.onset),
+      ...(x.abatement ? { abatementDateTime: daysAgo(x.abatement) } : {}),
+    });
+    return {
+      fullUrl: `urn:uuid:${condId}`,
+      resource,
+      request: { method: "POST", url: "Condition", ifNoneExist: `identifier=${COND_SYSTEM}|${condId}` },
+    };
+  });
+}
+
 function lvefEntry(p, i) {
   if (typeof p.lvef !== "number") return null;
   const obsId = `lvef-${p.mrn}`;
@@ -165,6 +220,70 @@ const BP_LOG = {
   "HF-002": [
     [88, 58, 68, "Omron X7", "Felt lightheaded on standing"],
     [92, 61, 70, "Manual Entry", "Seated, rested 5 min"],
+  ],
+};
+
+/**
+ * The CURRENT (most recent) value of each lab that gates GDMT initiation/up-titration:
+ * potassium + eGFR (+ creatinine for context, NT-proBNP for severity). Each becomes the
+ * newest point of a back-dated series — see LAB_DEFS.trend — so the Clinical tab has a
+ * trajectory to show while the engine still reads exactly these numbers.
+ * [k mmol/L, eGFR mL/min/1.73m², creatinine mg/dL, NT-proBNP pg/mL].
+ * Dated within the engine's 90-day lab-recency window. Deliberately varied so the
+ * GDMT tab shows the full range of engine outcomes:
+ *   HF-001/002 → normal K+/eGFR      → eligible gaps are actionable
+ *   HF-003     → K+ 5.2 (hyperkalemia) → MRA CONTRAINDICATED (with reason)
+ *   HF-004     → OMITTED                → "labs needed" gap (order BMP first)
+ */
+const LABS = {
+  "HF-001": { k: 4.2, egfr: 68, cr: 1.0, ntprobnp: 2400 },
+  "HF-002": { k: 4.5, egfr: 72, cr: 1.1, ntprobnp: 850 },
+  "HF-003": { k: 5.2, egfr: 58, cr: 1.3, ntprobnp: 1200 },
+  "HF-005": { k: 4.4, egfr: 80, cr: 0.9, ntprobnp: 320 },
+};
+
+/**
+ * Guideline-directed meds per patient, coded in RxNorm and dosed so the engine's
+ * dose-adequacy check tells a story (sub-target vs at-target) and leaves realistic
+ * gaps. [name, rxnorm, doseMg per administration, freq/day, dosage text].
+ *   HF-001 → only a sub-target beta-blocker → 3 open pillars (big benefit headroom)
+ *   HF-002 → ARNI at target + sub-target BB & MRA → SGLT2i is the remaining gap
+ *   HF-003 → RAASi sub-target, BB & SGLT2i at target → MRA blocked by hyperkalemia
+ *   HF-005 → SGLT2i only (HFmrEF — cross-spectrum agent)
+ *
+ * `status` defaults to "active". The two discontinued entries below use **stopped**,
+ * which reads as inactive to both the extractor and the Clinical tab, so they give the
+ * Resolved toggle something to show while leaving the engine untouched. Each pairs with
+ * that patient's data: HF-001's RAASi gap has a documented ACEi intolerance, and HF-003's
+ * MRA is blocked by the same hyperkalemia its K+ of 5.2 shows.
+ *
+ * "completed" would now be an equally valid way to seed a discontinued med — fhir/extract.ts
+ * treats only "active"/"on-hold" as on-therapy, so it no longer closes a pillar gap. Any
+ * change here still needs the demo GDMT output re-checked, since these doses are what make
+ * the sub-target/at-target story above come out right.
+ */
+const MEDS = {
+  "HF-001": [
+    // Long-standing sub-target beta-blocker (60 days) → "Due for up-titration" on the GDMT tab.
+    { name: "Carvedilol", rxnorm: "20352", doseMg: 6.25, freq: 2, text: "6.25 mg twice daily", authoredDaysAgo: 60 },
+    { name: "Lisinopril", rxnorm: "29046", doseMg: 10, freq: 1, text: "10 mg once daily",
+      status: "stopped", statusReason: "Discontinued — persistent cough", authoredDaysAgo: 400 },
+  ],
+  "HF-002": [
+    { name: "Sacubitril/valsartan", rxnorm: "1656340", doseMg: 200, freq: 2, text: "97/103 mg twice daily" },
+    // Recently started sub-target BB (5 days) → within the titration window, NOT overdue yet.
+    { name: "Metoprolol succinate", rxnorm: "866427", doseMg: 100, freq: 1, text: "100 mg once daily", authoredDaysAgo: 5 },
+    { name: "Spironolactone", rxnorm: "20610", doseMg: 25, freq: 1, text: "25 mg once daily" },
+  ],
+  "HF-003": [
+    { name: "Lisinopril", rxnorm: "29046", doseMg: 20, freq: 1, text: "20 mg once daily" },
+    { name: "Bisoprolol", rxnorm: "19484", doseMg: 10, freq: 1, text: "10 mg once daily" },
+    { name: "Dapagliflozin", rxnorm: "1488564", doseMg: 10, freq: 1, text: "10 mg once daily" },
+    { name: "Spironolactone", rxnorm: "20610", doseMg: 25, freq: 1, text: "25 mg once daily",
+      status: "stopped", statusReason: "Discontinued — hyperkalemia", authoredDaysAgo: 220 },
+  ],
+  "HF-005": [
+    { name: "Empagliflozin", rxnorm: "1545658", doseMg: 10, freq: 1, text: "10 mg once daily" },
   ],
 };
 
@@ -272,7 +391,15 @@ function taskEntry(p, i) {
   const series = v[t.prefix === "wt" ? "weights" : t.prefix];
   const latestIdx = (series?.length ?? 1) - 1;
   const priority = t.severity === "high" ? "urgent" : t.severity === "moderate" ? "asap" : "routine";
-  const note = [{ text: `${t.note} (Source: HF remote-monitoring)` }];
+  // Real citation ids so the Tasks UI can deep-link the guideline source (mirrors
+  // VITAL_CITATION_REF in src/engine/citations.ts).
+  const VITAL_CITATION = {
+    weight: "HFSA-selfcare-weight-monitoring",
+    bloodPressure: "AHA-ACC-HFSA-2022-7.3.1",
+    heartRate: "AHA-ACC-HFSA-2022-7.3.2",
+    spo2: "general-red-flag-spo2",
+  };
+  const note = [{ text: `${t.note} (Source: ${VITAL_CITATION[t.vital] ?? "HF remote-monitoring"})` }];
   if (t.actionNote) note.push({ text: t.actionNote, authorString: "Dr. Smith", time: daysAgo(0) });
   const resource = tagged({
     resourceType: "Task",
@@ -296,14 +423,124 @@ function taskEntry(p, i) {
   };
 }
 
+/**
+ * How far back each lab result in a series sits, newest last. The final point is the
+ * one the engine actually reads.
+ *
+ * The oldest is 330 rather than 365 days on purpose: the Clinical tab's widest window is
+ * 12 months, and a point dated exactly 365 days back sits on that boundary and is always
+ * filtered out by the time anyone looks at it. Real labs aren't drawn on anniversaries.
+ */
+const LAB_TREND_DAYS = [330, 270, 180, 120, 60, 7];
+
+/**
+ * Chemistry labs that gate GDMT decisions, plus NT-proBNP for severity context.
+ *
+ * `trend` synthesises a plausible trajectory by scaling the patient's CURRENT value in
+ * LABS backwards in time — one multiplier per entry in LAB_TREND_DAYS. It MUST end in
+ * exactly 1, so the newest point equals the LABS value verbatim: the engine reads
+ * latest-only, so anything else would silently change GDMT output. The shapes encode the
+ * clinical story (potassium climbing, eGFR drifting down, NT-proBNP falling on therapy).
+ */
+const LAB_DEFS = [
+  {
+    key: "k",
+    code: "2823-3",
+    display: "Potassium [Moles/volume] in Serum or Plasma",
+    unit: "mmol/L",
+    ucum: "mmol/L",
+    decimals: 1,
+    trend: [0.9, 0.93, 0.95, 0.97, 0.99, 1],
+  },
+  {
+    key: "egfr",
+    code: "33914-3",
+    display: "Glomerular filtration rate/1.73 sq M.predicted",
+    unit: "mL/min/1.73m2",
+    ucum: "mL/min/{1.73_m2}",
+    decimals: 0,
+    trend: [1.18, 1.14, 1.1, 1.06, 1.03, 1],
+  },
+  {
+    key: "cr",
+    code: "2160-0",
+    display: "Creatinine [Mass/volume] in Serum or Plasma",
+    unit: "mg/dL",
+    ucum: "mg/dL",
+    decimals: 2,
+    trend: [0.85, 0.88, 0.92, 0.95, 0.98, 1],
+  },
+  {
+    key: "ntprobnp",
+    code: "33762-6",
+    display: "NT-proBNP [Mass/volume] in Serum or Plasma",
+    unit: "pg/mL",
+    ucum: "pg/mL",
+    decimals: 0,
+    trend: [1.6, 1.45, 1.3, 1.15, 1.05, 1],
+  },
+];
+
+const roundTo = (v, decimals) => Number(v.toFixed(decimals));
+
+function labEntries(p, i) {
+  const l = LABS[p.mrn];
+  if (!l) return [];
+  return LAB_DEFS.filter((d) => typeof l[d.key] === "number").flatMap((d) =>
+    LAB_TREND_DAYS.map((daysBack, k) => {
+      const obsId = `lab-${p.mrn}-${d.key}-${k}`;
+      const resource = tagged({
+        resourceType: "Observation",
+        identifier: [{ system: OBS_SYSTEM, value: obsId }],
+        status: "final",
+        category: [{ coding: [{ system: "http://terminology.hl7.org/CodeSystem/observation-category", code: "laboratory" }] }],
+        code: { coding: [{ system: LOINC, code: d.code, display: d.display }], text: d.display },
+        subject: { reference: `urn:uuid:patient-${i}` },
+        effectiveDateTime: daysAgo(daysBack),
+        valueQuantity: { value: roundTo(l[d.key] * d.trend[k], d.decimals), unit: d.unit, system: UCUM, code: d.ucum },
+      });
+      return { fullUrl: `urn:uuid:${obsId}`, resource, request: { method: "POST", url: "Observation", ifNoneExist: `identifier=${OBS_SYSTEM}|${obsId}` } };
+    }),
+  );
+}
+
+/** MedicationRequests (RxNorm-coded, dosed) → engine classifies active ones to GDMT pillars. */
+function medEntries(p, i) {
+  const meds = MEDS[p.mrn];
+  if (!meds) return [];
+  return meds.map((m, k) => {
+    const medId = `med-${p.mrn}-${k}`;
+    const resource = tagged({
+      resourceType: "MedicationRequest",
+      identifier: [{ system: "urn:hf-gdmt:med", value: medId }],
+      status: m.status || "active",
+      intent: "order",
+      ...(m.statusReason ? { statusReason: { text: m.statusReason } } : {}),
+      medicationCodeableConcept: { coding: [{ system: RXNORM, code: m.rxnorm, display: m.name }], text: m.name },
+      subject: { reference: `urn:uuid:patient-${i}` },
+      authoredOn: daysAgo(m.authoredDaysAgo || 30),
+      requester: { display: "Dr. Smith" },
+      dosageInstruction: [{
+        text: m.text,
+        timing: { repeat: { frequency: m.freq, period: 1, periodUnit: "d" } },
+        doseAndRate: [{ doseQuantity: { value: m.doseMg, unit: "mg", system: UCUM, code: "mg" } }],
+      }],
+    });
+    return { fullUrl: `urn:uuid:${medId}`, resource, request: { method: "POST", url: "MedicationRequest", ifNoneExist: `identifier=urn:hf-gdmt:med|${medId}` } };
+  });
+}
+
 function buildBundle() {
   const entry = [];
   PEOPLE.forEach((p, i) => {
     entry.push(patientEntry(p, i));
     entry.push(conditionEntry(p, i));
+    entry.push(...extraProblemEntries(p, i));
     const lvef = lvefEntry(p, i);
     if (lvef) entry.push(lvef);
     entry.push(...vitalEntries(p, i));
+    entry.push(...labEntries(p, i));
+    entry.push(...medEntries(p, i));
     const task = taskEntry(p, i);
     if (task) entry.push(task);
   });
@@ -317,7 +554,11 @@ async function main() {
 
   const res = await fetch(`${BASE}`, {
     method: "POST",
-    headers: { "Content-Type": "application/fhir+json", Accept: "application/fhir+json" },
+    headers: {
+      "Content-Type": "application/fhir+json",
+      Accept: "application/fhir+json",
+      ...(TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {}),
+    },
     body: JSON.stringify(bundle),
   });
 

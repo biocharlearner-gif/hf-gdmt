@@ -45,6 +45,30 @@ function parseDailyDoseMg(mr: any): number | undefined {
 }
 
 /**
+ * Statuses that mean "the patient is taking this drug right now", across both
+ * MedicationRequest.status and MedicationStatement.status (R4).
+ *
+ * Only `active` and `on-hold` qualify. `on-hold` is a temporary suspension of an
+ * established prescription, so it still counts as being on the pillar — recommending
+ * a start for a drug that is merely held (e.g. for transient hyperkalemia) would be
+ * wrong. Everything else means not-on-therapy, notably:
+ *   - `completed`  — the course finished; for chronic GDMT that is the opposite of on-therapy
+ *   - `intended`   — MedicationStatement: planned, not yet taken
+ *   - `draft`      — MedicationRequest: prescription not yet issued
+ *   - `stopped` / `cancelled` / `not-taken` / `entered-in-error` / `unknown`
+ *
+ * This is deliberately NOT the same predicate as `medicationActivity` in
+ * `src/patients/clinicalData.ts`, and the two must not be merged. That one drives a
+ * display filter, where an unrecognised status falls back to *active* so a row is never
+ * silently hidden. Here an unrecognised status must fall back to *not* on therapy: a
+ * false "on therapy" silently closes a real GDMT gap, which is the failure mode this
+ * engine exists to prevent. Same word, opposite safe default.
+ */
+function isOnTherapy(status: string): boolean {
+  return status === "active" || status === "on-hold";
+}
+
+/**
  * Build EngineInput from FHIR resources. Accepts either FHIR Bundles or flat
  * resource arrays for Patient/Condition/Observation/MedicationRequest/AllergyIntolerance.
  * `now` is injected so the engine stays deterministic.
@@ -88,7 +112,8 @@ export function buildEngineInput(opts: {
       rxnorm,
       pillar: classifyMed(name),
       dailyDoseMg: parseDailyDoseMg(m),
-      active: ["active", "completed", "intended", "on-hold"].includes(status) && status !== "stopped",
+      active: isOnTherapy(status),
+      startedOn: typeof m.authoredOn === "string" ? m.authoredOn : undefined,
     };
   });
 

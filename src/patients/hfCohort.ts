@@ -59,6 +59,16 @@ export async function getHfCodes(): Promise<Coding[]> {
   return cache;
 }
 
+/**
+ * True if a coding is in the HF cohort value set (Gate 1). Used by the Add-Patient
+ * diagnosis picker to classify a chosen concept HF vs Non-HF using the SAME expanded
+ * set the roster's cohort query uses — so the form's preview and the list agree.
+ */
+export async function isHfCode(concept: { system: string; code: string }): Promise<boolean> {
+  const codes = await getHfCodes();
+  return codes.some((c) => c.system === concept.system && c.code === concept.code);
+}
+
 async function loadHfCodes(): Promise<Coding[]> {
   try {
     const snomed = await expandHfSnomed();

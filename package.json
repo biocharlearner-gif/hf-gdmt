@@ -10,8 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "seed": "node scripts/seed-hapi.mjs",
-    "alert-service": "tsx server/alertService.ts",
-    "register-subscription": "tsx server/registerSubscription.ts"
+    "server": "bun --watch server/index.ts",
+    "register-subscription": "bun server/registerSubscription.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -39,6 +39,6 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
     "vite": "^8.0.12",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.10"
   }
 }

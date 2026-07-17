@@ -6,7 +6,6 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Link,
   Menu,
   MenuItem,
   Paper,
@@ -27,7 +26,6 @@ import FavoriteIcon from "@mui/icons-material/FavoriteBorder";
 import AirIcon from "@mui/icons-material/AirOutlined";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import FileDownloadIcon from "@mui/icons-material/FileDownloadOutlined";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PendingIcon from "@mui/icons-material/PendingOutlined";
 import NorthIcon from "@mui/icons-material/North";
@@ -36,10 +34,13 @@ import EastIcon from "@mui/icons-material/East";
 import { getObservations, getTasksForPatient, createResourceIfNoneExist, type FhirResource } from "./patientApi";
 import { buildAlertInput } from "../fhir/extract";
 import { evaluateAlerts, type GdmtAlert, type AlertSeverity } from "../engine/alerts";
-import { resolveCitation } from "../engine/citations";
-import { computeRiskScore, type RiskBand } from "../engine/risk";
+import { computeRiskScore } from "../engine/risk";
 import { buildDetectedIssue, buildFlagForAlert, buildTaskForAlert, alertKey, ALERT_IDENTIFIER_SYSTEM } from "../fhir/writeback";
 import { CURRENT_USER } from "./currentUser";
+import { RISK_COLOR } from "./riskColors";
+import CitationLine from "./CitationLine";
+import { Bars, Line } from "./sparkline";
+import { fmtDate, fmtTime, round1 } from "./format";
 
 /**
  * Vitals page — remote-monitoring view for a patient's home-device readings.
@@ -92,9 +93,6 @@ function hasCode(o: Obs, set: readonly string[]): boolean {
 function obsDate(o: Obs): string | undefined {
   return o.effectiveDateTime ?? o.issued;
 }
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
 function seriesFor(obs: Obs[], set: readonly string[]): Reading[] {
   return obs
     .filter((o) => hasCode(o, set) && !hasCode(o, [BP_PANEL]))
@@ -104,17 +102,6 @@ function seriesFor(obs: Obs[], set: readonly string[]): Reading[] {
 }
 function compOf(o: Obs, set: readonly string[]): Component | undefined {
   return (o.component ?? []).find((c) => (c.code?.coding ?? []).some((x) => x.code && set.includes(x.code)));
-}
-
-function fmtDate(iso?: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-function fmtTime(iso?: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 // ---- Status / classification ------------------------------------------------
@@ -142,44 +129,6 @@ function sysStatus(v: number): Status {
 }
 function diaStatus(v: number): Status {
   return v >= 90 ? "HIGH" : v >= 80 ? "ELEVATED" : "NORMAL";
-}
-
-// ---- Mini charts ------------------------------------------------------------
-
-function Bars({ series, color }: { series: number[]; color: string }) {
-  if (series.length === 0) return null;
-  const min = Math.min(...series);
-  const max = Math.max(...series);
-  const span = max - min || 1;
-  return (
-    <Box sx={{ display: "flex", alignItems: "flex-end", gap: 0.5, height: 64, mt: 1 }}>
-      {series.map((v, i) => {
-        const h = 18 + ((v - min) / span) * 42; // 18–60px
-        const recent = i >= series.length - Math.ceil(series.length / 2);
-        return <Box key={i} sx={{ flex: 1, height: h, borderRadius: 0.75, bgcolor: recent ? color : `${color}40` }} />;
-      })}
-    </Box>
-  );
-}
-
-function Line({ series, color }: { series: number[]; color: string }) {
-  if (series.length === 0) return null;
-  const w = 240;
-  const h = 64;
-  const pad = 4;
-  const min = Math.min(...series);
-  const max = Math.max(...series);
-  const span = max - min || 1;
-  const step = series.length > 1 ? (w - pad * 2) / (series.length - 1) : 0;
-  const pts = series.map((v, i) => `${round1(pad + i * step)},${round1(pad + (h - pad * 2) * (1 - (v - min) / span))}`);
-  return (
-    <Box sx={{ mt: 1, height: 64 }}>
-      <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
-        <polyline points={`${pad},${h - pad} ${pts.join(" ")} ${w - pad},${h - pad}`} fill={`${color}1a`} stroke="none" />
-        <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth={2} />
-      </svg>
-    </Box>
-  );
 }
 
 // ---- Trend card -------------------------------------------------------------
@@ -607,14 +556,6 @@ function PipelinePanel() {
   );
 }
 
-const RISK_COLOR: Record<RiskBand, { fg: string; bg: string }> = {
-  Critical: { fg: "#b91c1c", bg: "#fee2e2" },
-  High: { fg: "#c2410c", bg: "#ffedd5" },
-  Moderate: { fg: "#b45309", bg: "#fef3c7" },
-  Low: { fg: "#0369a1", bg: "#e0f2fe" },
-  Stable: { fg: "#15803d", bg: "#dcfce7" },
-};
-
 function RiskPanel({ risk }: { risk: ReturnType<typeof computeRiskScore> }) {
   const c = RISK_COLOR[risk.band];
   return (
@@ -688,25 +629,6 @@ function AlertBanner({
         {busy ? "Creating…" : acked ? "FHIR Task created" : "Accept + Create FHIR Task"}
       </Button>
     </Paper>
-  );
-}
-
-/** Renders the alert's guideline source as a deep link to the exact document section. */
-function CitationLine({ citationRef }: { citationRef: string }) {
-  const c = resolveCitation(citationRef);
-  const text = c.section ? `${c.source} — ${c.section}` : c.source;
-  return (
-    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
-      Source:{" "}
-      {c.url ? (
-        <Link href={c.url} target="_blank" rel="noopener noreferrer" sx={{ fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 0.25 }}>
-          {text}
-          <OpenInNewIcon sx={{ fontSize: 12 }} />
-        </Link>
-      ) : (
-        text
-      )}
-    </Typography>
   );
 }
 

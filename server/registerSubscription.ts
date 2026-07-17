@@ -4,12 +4,18 @@
  * (the FHIR server must be able to POST to it — localhost won't work for a hosted
  * server like hapi.fhir.org; use a tunnel such as ngrok, or a deployed URL).
  *
- * Run:  CALLBACK_URL=https://<public-host>/notify npm run register-subscription
- *       FHIR_BASE=<url> CALLBACK_URL=… npm run register-subscription
+ * Run:  CALLBACK_URL=https://<public-host>/notify bun server/registerSubscription.ts
+ *       FHIR_BASE=<url> CALLBACK_URL=… bun server/registerSubscription.ts
+ *
+ * Targets the tenant FHIR server (MEDBLOCKS_FHIR_BASE) with its Bearer token by
+ * default; both are read from the environment (.env.local), never hardcoded.
  */
 import { buildVitalsSubscription } from "../src/fhir/subscription";
 
-const FHIR_BASE = (process.env.FHIR_BASE || "https://hapi.fhir.org/baseR4").replace(/\/$/, "");
+const FHIR_BASE = (
+  process.env.FHIR_BASE || process.env.MEDBLOCKS_FHIR_BASE || "https://hapi.fhir.org/baseR4"
+).replace(/\/$/, "");
+const FHIR_TOKEN = process.env.FHIR_TOKEN || process.env.MEDBLOCKS_TOKEN;
 const CALLBACK_URL = process.env.CALLBACK_URL;
 
 async function main() {
@@ -24,7 +30,11 @@ async function main() {
 
   const res = await fetch(`${FHIR_BASE}/Subscription`, {
     method: "POST",
-    headers: { "Content-Type": "application/fhir+json", Accept: "application/fhir+json" },
+    headers: {
+      "Content-Type": "application/fhir+json",
+      Accept: "application/fhir+json",
+      ...(FHIR_TOKEN ? { Authorization: `Bearer ${FHIR_TOKEN}` } : {}),
+    },
     body: JSON.stringify(sub),
   });
   if (!res.ok) {

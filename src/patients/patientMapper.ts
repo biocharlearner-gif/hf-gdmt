@@ -1,10 +1,12 @@
-import { MRN_SYSTEM, MRN_TYPE } from "./fhirConfig";
+import { DEMO_TAG, MRN_SYSTEM, MRN_TYPE } from "./fhirConfig";
 import { parseDob, type PatientFormValues } from "./patientSchema";
+import type { ConceptOption } from "./conditionSearch";
 
 /** Minimal FHIR Patient shape we read/write. */
 export interface FhirPatient {
   resourceType: "Patient";
   id?: string;
+  meta?: { tag?: Array<{ system?: string; code?: string; display?: string }> };
   name?: Array<{ use?: string; family?: string; given?: string[] }>;
   gender?: "male" | "female" | "other" | "unknown";
   birthDate?: string; // ISO YYYY-MM-DD
@@ -121,6 +123,9 @@ export function formToPatient(v: PatientFormValues, id?: string): FhirPatient {
   return {
     resourceType: "Patient",
     ...(id ? { id } : {}),
+    // Stamp the demo-cohort tag so the tag-scoped patient list actually shows this
+    // patient (the list ignores untagged resources on the shared public server).
+    meta: { tag: [{ ...DEMO_TAG }] },
     name: [{ use: "official", family: v.lastName.trim(), given }],
     gender: v.gender,
     birthDate: dobToIso(v.dob),
@@ -134,6 +139,35 @@ export function formToPatient(v: PatientFormValues, id?: string): FhirPatient {
     ],
     ...(telecom.length ? { telecom } : {}),
     ...(address ? { address } : {}),
+  };
+}
+
+const CLINICAL_STATUS_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-clinical";
+const VERIFICATION_STATUS_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-ver-status";
+const CONDITION_CATEGORY_SYSTEM = "http://terminology.hl7.org/CodeSystem/condition-category";
+
+/** A FHIR Condition (problem-list item) as we write it for a patient's diagnosis. */
+export type FhirCondition = { resourceType: "Condition" } & Record<string, unknown>;
+
+/**
+ * Build an active + confirmed problem-list `Condition` for a patient from a selected
+ * diagnosis concept (from the terminology-server search). Tagged with the demo cohort
+ * so the HF-cohort query (which is tag-scoped) can see it. Returns null when no
+ * concept was chosen.
+ */
+export function formToCondition(concept: ConceptOption | null | undefined, patientId: string): FhirCondition | null {
+  if (!concept) return null;
+  return {
+    resourceType: "Condition",
+    meta: { tag: [{ ...DEMO_TAG }] },
+    clinicalStatus: { coding: [{ system: CLINICAL_STATUS_SYSTEM, code: "active" }] },
+    verificationStatus: { coding: [{ system: VERIFICATION_STATUS_SYSTEM, code: "confirmed" }] },
+    category: [{ coding: [{ system: CONDITION_CATEGORY_SYSTEM, code: "problem-list-item" }] }],
+    code: {
+      coding: [{ system: concept.system, code: concept.code, display: concept.display }],
+      text: concept.display,
+    },
+    subject: { reference: `Patient/${patientId}` },
   };
 }
 
@@ -156,6 +190,8 @@ export function patientToForm(p: FhirPatient): PatientFormValues {
     state: addr?.state ?? "",
     zip: addr?.postalCode ?? "",
     country: addr?.country ?? "",
+    // Diagnosis isn't loaded in the Edit flow; the problem section is Add-only.
+    problem: "",
   };
 }
 

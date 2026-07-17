@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { Alert, Box, CircularProgress, Typography } from "@mui/material";
 import { getTasksForPatient, getObservations, type FhirResource } from "./patientApi";
 import { buildAlertInput } from "../fhir/extract";
-import { evaluateAlerts } from "../engine/alerts";
+import { evaluateOutcomeAlerts } from "../engine/alerts";
 import TaskCard from "./TaskCard";
 
 /**
@@ -13,6 +13,10 @@ import TaskCard from "./TaskCard";
  */
 export default function PatientTasksPage() {
   const { id = "" } = useParams();
+  const [searchParams] = useSearchParams();
+  /** Task deep-linked from elsewhere (e.g. a GDMT pillar that already has a Task). */
+  const highlightId = searchParams.get("highlight") ?? undefined;
+  const highlightRef = useRef<HTMLDivElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tasks, setTasks] = useState<FhirResource[]>([]);
@@ -24,7 +28,8 @@ export default function PatientTasksPage() {
     Promise.all([getTasksForPatient(id), getObservations(id).catch(() => [])])
       .then(([ts, obs]) => {
         setTasks(ts);
-        const alerts = evaluateAlerts(buildAlertInput({ patientId: id, observations: obs }));
+        // Outcome loop: vitals still abnormal on the latest reading (recency-independent).
+        const alerts = evaluateOutcomeAlerts(buildAlertInput({ patientId: id, observations: obs }));
         setActiveAlertVitals(new Set(alerts.map((a) => a.vital)));
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load tasks"))
@@ -35,6 +40,12 @@ export default function PatientTasksPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!loading && highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [loading, highlightId]);
 
   const onChanged = (updated: FhirResource) =>
     setTasks((ts) => ts.map((t) => (t.id === updated.id ? updated : t)));
@@ -63,9 +74,18 @@ export default function PatientTasksPage() {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="h6" sx={{ fontWeight: 700 }}>Tasks ({sorted.length})</Typography>
-      {sorted.map((t) => (
-        <TaskCard key={String(t.id)} task={t} patientId={id} activeAlertVitals={activeAlertVitals} onChanged={onChanged} />
-      ))}
+      {sorted.map((t) => {
+        const isHighlighted = highlightId !== undefined && String(t.id) === highlightId;
+        return (
+          <Box
+            key={String(t.id)}
+            ref={isHighlighted ? highlightRef : undefined}
+            sx={isHighlighted ? { borderRadius: 2, outline: "2px solid", outlineColor: "primary.main" } : undefined}
+          >
+            <TaskCard task={t} patientId={id} activeAlertVitals={activeAlertVitals} onChanged={onChanged} />
+          </Box>
+        );
+      })}
     </Box>
   );
 }

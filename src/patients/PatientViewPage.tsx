@@ -35,13 +35,17 @@ export interface PatientOutletContext {
   onEdit: () => void;
 }
 
-/** Tab definitions: label + the route segment under /patients/:id (null = disabled). */
-const TABS: { label: string; segment: string | null }[] = [
-  { label: "Overview", segment: null },
+/** Tab definitions: label + the route segment under /patients/:id. */
+const TABS: { label: string; segment: string }[] = [
   { label: "Demographics", segment: "demographics" },
+  { label: "Clinical", segment: "clinical" },
+  { label: "GDMT", segment: "gdmt" },
   { label: "Vitals", segment: "vitals" },
   { label: "Tasks", segment: "tasks" },
 ];
+
+/** Default sub-page when the URL is the bare patient route. */
+const DEFAULT_SEGMENT = "demographics";
 
 /**
  * Patient view shell: loads the patient, renders the full-width app bar + tabs, and
@@ -112,8 +116,10 @@ export default function PatientViewPage() {
   const c = avatarColors(patient);
 
   // Active tab follows the URL; default to Demographics when on the bare patient route.
-  const seg = pathname.endsWith("/vitals") ? "vitals" : pathname.endsWith("/tasks") ? "tasks" : "demographics";
-  const activeTab = TABS.findIndex((t) => t.segment === seg);
+  // Derived from TABS rather than hand-written per segment, so adding a tab above is
+  // the only edit needed for it to highlight.
+  const activeIdx = TABS.findIndex((t) => pathname.endsWith(`/${t.segment}`));
+  const activeTab = activeIdx === -1 ? TABS.findIndex((t) => t.segment === DEFAULT_SEGMENT) : activeIdx;
 
   return (
     <Box>

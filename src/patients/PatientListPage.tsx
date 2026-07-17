@@ -20,6 +20,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   TextField,
   Tooltip,
   Typography,
@@ -27,6 +28,7 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import { usePatients } from "./usePatients";
 import {
@@ -41,6 +43,8 @@ import {
 import { deletePatient } from "./patientApi";
 import PatientFormDialog from "./PatientFormDialog";
 import ConfirmDialog from "./ConfirmDialog";
+import { RiskChip } from "./RiskChip";
+import { HF_COHORT_HINT, NON_HF_COHORT_HINT } from "./problemList";
 
 const PAGE_SIZES = [10, 25, 50];
 
@@ -54,8 +58,12 @@ export default function PatientListPage() {
     setPage,
     pageSize,
     setPageSize,
+    sortBy,
+    setSortBy,
     patients,
     hfIds,
+    riskById,
+    risksLoading,
     total,
     pageCount,
     loading,
@@ -66,6 +74,8 @@ export default function PatientListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [formOpen, setFormOpen] = useState(false);
+  // Patient being edited (null = Add mode). Reuses the same PatientFormDialog.
+  const [formPatient, setFormPatient] = useState<FhirPatient | null>(null);
   const [toDelete, setToDelete] = useState<FhirPatient | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -73,6 +83,8 @@ export default function PatientListPage() {
   // Open the Add dialog when arriving via the sidebar "New Record" action.
   useEffect(() => {
     if (searchParams.get("new") === "1") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFormPatient(null);
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormOpen(true);
       searchParams.delete("new");
@@ -135,7 +147,15 @@ export default function PatientListPage() {
             },
           }}
         />
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setFormOpen(true)} sx={{ flexShrink: 0 }}>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            setFormPatient(null);
+            setFormOpen(true);
+          }}
+          sx={{ flexShrink: 0 }}
+        >
           Add Patient
         </Button>
       </Paper>
@@ -211,10 +231,18 @@ export default function PatientListPage() {
         >
           <ToggleButton value="all">All</ToggleButton>
           <ToggleButton value="hf">
-            <Dot color="#1d6fd6" /> HF Patients
+            <Tooltip title={HF_COHORT_HINT}>
+              <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
+                <Dot color="#1d6fd6" /> HF Patients
+              </Box>
+            </Tooltip>
           </ToggleButton>
           <ToggleButton value="non-hf">
-            <Dot color="#94a3b8" /> Non-HF Patients
+            <Tooltip title={NON_HF_COHORT_HINT}>
+              <Box component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
+                <Dot color="#94a3b8" /> Non-HF Patients
+              </Box>
+            </Tooltip>
           </ToggleButton>
         </ToggleButtonGroup>
       </Box>
@@ -231,19 +259,31 @@ export default function PatientListPage() {
                 <TableCell>Age</TableCell>
                 <TableCell>MRN</TableCell>
                 <TableCell>Cohort</TableCell>
+                <TableCell sortDirection={sortBy === "risk" ? "desc" : false}>
+                  <Tooltip title="HF congestion risk — sort sickest-first">
+                    <TableSortLabel
+                      active={sortBy === "risk"}
+                      direction="desc"
+                      hideSortIcon={false}
+                      onClick={() => setSortBy(sortBy === "risk" ? "name" : "risk")}
+                    >
+                      Risk
+                    </TableSortLabel>
+                  </Tooltip>
+                </TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
+                  <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
                     <CircularProgress size={28} />
                   </TableCell>
                 </TableRow>
               ) : patients.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 6, color: "text.secondary" }}>
+                  <TableCell colSpan={8} align="center" sx={{ py: 6, color: "text.secondary" }}>
                     No patients found.
                   </TableCell>
                 </TableRow>
@@ -279,15 +319,36 @@ export default function PatientListPage() {
                       </TableCell>
                       <TableCell>
                         {hfIds.has(p.id ?? "") ? (
-                          <Chip size="small" label="HF Patient" sx={{ bgcolor: "#e7f0fd", color: "#1d6fd6", fontWeight: 600 }} />
+                          <Tooltip title={HF_COHORT_HINT}>
+                            <Chip size="small" label="HF Patient" sx={{ bgcolor: "#e7f0fd", color: "#1d6fd6", fontWeight: 600 }} />
+                          </Tooltip>
                         ) : (
-                          <Chip size="small" label="Non-HF" sx={{ bgcolor: "#eef2f7", color: "#64748b", fontWeight: 600 }} />
+                          <Tooltip title={NON_HF_COHORT_HINT}>
+                            <Chip size="small" label="Non-HF" sx={{ bgcolor: "#eef2f7", color: "#64748b", fontWeight: 600 }} />
+                          </Tooltip>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <RiskChip
+                          risk={p.id ? riskById[p.id] : undefined}
+                          loading={risksLoading && hfIds.has(p.id ?? "") && !(p.id && riskById[p.id])}
+                        />
                       </TableCell>
                       <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                         <Tooltip title="View">
                           <IconButton size="small" onClick={() => navigate(`/patients/${p.id}`)}>
                             <VisibilityOutlinedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Edit">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              setFormPatient(p);
+                              setFormOpen(true);
+                            }}
+                          >
+                            <EditOutlinedIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                         <Tooltip title="Delete">
@@ -345,6 +406,7 @@ export default function PatientListPage() {
 
       <PatientFormDialog
         open={formOpen}
+        patient={formPatient}
         onClose={() => setFormOpen(false)}
         onSaved={(msg) => {
           setToast(msg);

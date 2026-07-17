@@ -93,7 +93,7 @@ const PILLARS: PillarConfig[] = [
   {
     id: "BetaBlocker",
     label: "Evidence-based beta-blocker",
-    citationRef: "AHA-ACC-HFSA-2022-7.3.3",
+    citationRef: "AHA-ACC-HFSA-2022-7.3.2",
     evaluateGap: (input) => {
       const hr = fresh(input.now, input.vitals.heartRate, THRESHOLDS.vitalRecencyDays);
       const sbp = fresh(input.now, input.vitals.systolicBp, THRESHOLDS.vitalRecencyDays);
@@ -112,7 +112,7 @@ const PILLARS: PillarConfig[] = [
   {
     id: "MRA",
     label: "Mineralocorticoid receptor antagonist",
-    citationRef: "AHA-ACC-HFSA-2022-7.3.2",
+    citationRef: "AHA-ACC-HFSA-2022-7.3.3",
     evaluateGap: (input) => {
       const k = fresh(input.now, input.labs.potassium, THRESHOLDS.labRecencyDays);
       const egfr = fresh(input.now, input.labs.egfr, THRESHOLDS.labRecencyDays);
@@ -156,11 +156,23 @@ export function evaluatePillar(input: EngineInput, cfg: PillarConfig = PILLARS[0
     const suggestedAction = onTarget
       ? undefined
       : ({ kind: "UPTITRATE", text: `Up-titrate ${agent.name} toward target dose` } as const);
+    // Time-on-therapy: sub-target pillars sitting below target past the titration
+    // interval are overdue for up-titration (guideline §7.3, ~2-week intervals).
+    const daysOnTherapy = ageInDays(input.now, agent.startedOn);
+    const titration = agent.startedOn !== undefined && daysOnTherapy !== undefined
+      ? {
+          startedOn: agent.startedOn,
+          daysOnTherapy,
+          intervalDays: THRESHOLDS.titrationIntervalDays,
+          overdue: ds.status === "ON_SUBTARGET" && daysOnTherapy > THRESHOLDS.titrationIntervalDays,
+        }
+      : undefined;
     return {
       id: cfg.id,
       label: cfg.label,
       status: ds.status,
-      agent: { name: agent.name, dailyDoseMg: agent.dailyDoseMg, targetDoseMg: ds.targetDoseMg, doseFraction: ds.doseFraction },
+      agent: { name: agent.name, dailyDoseMg: agent.dailyDoseMg, targetDoseMg: ds.targetDoseMg, doseFraction: ds.doseFraction, startedOn: agent.startedOn },
+      titration,
       reason: onTarget
         ? `On ${agent.name} at target dose.`
         : `On ${agent.name}${agent.dailyDoseMg ? ` (${agent.dailyDoseMg} mg/day)` : ""} below target${ds.targetDoseMg ? ` (${ds.targetDoseMg} mg/day)` : ""}.`,
