@@ -18,7 +18,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { getObservations, getMedications, getConditions, getTasksForPatient, createResource, createResourceIfNoneExist, type FhirResource } from "./patientApi";
 import { buildEngineInput } from "../fhir/extract";
-import { evaluateGdmt, type GdmtAssessment, type PillarResult, type PillarStatus, type PillarId, type Phenotype } from "../engine/engine";
+import { evaluateGdmt, gdmtStage, isApplicablePillar, type GdmtAssessment, type GdmtStage, type PillarResult, type PillarStatus, type PillarId, type Phenotype } from "../engine/engine";
 import { projectBenefit } from "../engine/benefit";
 import { buildTaskForGap, buildLabServiceRequest, buildCarePlan } from "../fhir/writeback";
 import { DEMO_TAG } from "./fhirConfig";
@@ -67,13 +67,6 @@ const STATUS_META: Record<PillarStatus, { label: string; bg: string; fg: string 
 };
 
 const TASK_STATUSES = new Set<PillarStatus>(["GAP_ELIGIBLE", "ON_SUBTARGET"]);
-
-/** Whether a pillar is part of the guideline program for this phenotype. */
-function isApplicable(phenotype: Phenotype, pillar: PillarId): boolean {
-  if (phenotype === "HFrEF") return true;
-  if (phenotype === "HFmrEF" || phenotype === "HFpEF") return pillar === "SGLT2i";
-  return false; // Unknown → determine phenotype (echo) first
-}
 
 interface ActionState {
   status: "idle" | "busy" | "done" | "error";
@@ -207,6 +200,7 @@ export default function GdmtTab() {
   }
 
   const benefit = useMemo(() => (assessment ? projectBenefit(assessment) : null), [assessment]);
+  const stage = useMemo(() => (assessment ? gdmtStage(assessment) : null), [assessment]);
 
   if (loading) {
     return (
@@ -231,6 +225,10 @@ export default function GdmtTab() {
         echoState={actions["echo"] ?? IDLE}
       />
 
+      {/* "You are here" on the GDMT optimization journey. Skipped for Unknown, where the
+          phenotype banner above already prompts an echo (would just duplicate it). */}
+      {stage && !isUnknown && <StageBanner stage={stage} />}
+
       {isHfref && (
         // Score + benefit read as one story (where the patient is / what closing the gaps buys),
         // so they sit side by side rather than eating two full-width rows.
@@ -249,7 +247,7 @@ export default function GdmtTab() {
             <PillarCard
               key={p.id}
               pillar={p}
-              applicable={isApplicable(phenotype, p.id)}
+              applicable={isApplicablePillar(phenotype, p.id)}
               phenotype={phenotype}
               patientId={patientId}
               existingTaskId={existingTasks[p.id]}
@@ -346,6 +344,91 @@ function PhenotypeBanner({
         </Typography>
       )}
     </Alert>
+  );
+}
+
+const STAGE_STEPS: { label: string }[] = [
+  { label: "Initiation" },
+  { label: "Active titration" },
+  { label: "Optimized" },
+];
+/** Which of the three journey steps a stage maps to (OPTIMIZED_LIMITED shares the last). */
+function stageStepIndex(id: GdmtStage["id"]): number {
+  if (id === "INITIATION") return 0;
+  if (id === "TITRATION") return 1;
+  return 2; // OPTIMIZED, OPTIMIZED_LIMITED
+}
+const STAGE_TONE: Record<GdmtStage["tone"], { fg: string; bg: string; border: string }> = {
+  info: { fg: "#1d4ed8", bg: "#eff6ff", border: "#bfdbfe" },
+  warning: { fg: "#b45309", bg: "#fffbeb", border: "#fde68a" },
+  success: { fg: "#15803d", bg: "#f0fdf4", border: "#bbf7d0" },
+};
+
+/**
+ * "You are here" on the GDMT optimization journey — the stage a HF clinician actually
+ * reasons in (initiation → active titration → optimized), computed deterministically by
+ * the engine from the pillar statuses. Answers "which stage is this patient in?" without
+ * any EHR visit-type data.
+ */
+function StageBanner({ stage }: { stage: GdmtStage }) {
+  const active = stageStepIndex(stage.id);
+  const tone = STAGE_TONE[stage.tone];
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, borderColor: tone.border, bgcolor: tone.bg }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1.5, flexWrap: "wrap" }}>
+        <Typography variant="overline" sx={{ fontWeight: 700, color: "text.secondary", lineHeight: 1 }}>
+          GDMT journey
+        </Typography>
+        <Chip size="small" label={stage.label} sx={{ bgcolor: tone.fg, color: "#fff", fontWeight: 700 }} />
+        {stage.lastChangeDays !== undefined && (
+          <Typography variant="caption" color="text.secondary">
+            last change {stage.lastChangeDays}d ago
+          </Typography>
+        )}
+      </Box>
+
+      {/* Three-step progress rail */}
+      <Box sx={{ display: "flex", alignItems: "center", mb: 1.5 }}>
+        {STAGE_STEPS.map((s, i) => {
+          const done = i < active;
+          const current = i === active;
+          const dotColor = done || current ? tone.fg : "#cbd5e1";
+          return (
+            <Box key={s.label} sx={{ display: "flex", alignItems: "center", flex: i < STAGE_STEPS.length - 1 ? 1 : "0 0 auto" }}>
+              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+                <Box
+                  sx={{
+                    width: current ? 16 : 12,
+                    height: current ? 16 : 12,
+                    borderRadius: "50%",
+                    bgcolor: dotColor,
+                    boxShadow: current ? `0 0 0 4px ${tone.bg}, 0 0 0 5px ${tone.fg}` : "none",
+                  }}
+                />
+                <Typography
+                  variant="caption"
+                  sx={{ fontWeight: current ? 700 : 500, color: current ? tone.fg : "text.secondary", whiteSpace: "nowrap" }}
+                >
+                  {s.label}
+                </Typography>
+              </Box>
+              {i < STAGE_STEPS.length - 1 && (
+                <Box sx={{ flex: 1, height: 2, mx: 1, mb: 2.5, bgcolor: i < active ? tone.fg : "#e2e8f0" }} />
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+
+      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+        {stage.summary}
+      </Typography>
+      {stage.nextStep && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+          Next: {stage.nextStep}
+        </Typography>
+      )}
+    </Paper>
   );
 }
 

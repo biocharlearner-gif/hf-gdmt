@@ -89,3 +89,30 @@ export interface GdmtAssessment {
   labsNeeded: string[];
   generatedAt: string;
 }
+
+/** Where the patient sits on the GDMT optimization journey (over applicable pillars). */
+export type GdmtStageId =
+  | "PHENOTYPE_PENDING"   // LVEF unknown — can't stage the program yet
+  | "INITIATION"          // no applicable pillars started; begin therapy
+  | "TITRATION"           // on therapy with sub-target doses / open eligible gaps
+  | "OPTIMIZED_LIMITED"   // nothing more actionable, but not all at target (contraindications)
+  | "OPTIMIZED";          // every applicable pillar at target dose
+
+export interface GdmtStage {
+  id: GdmtStageId;
+  /** Short stage name, e.g. "Active titration". */
+  label: string;
+  /** One-line status with counts. */
+  summary: string;
+  /** Suggested next step for this stage (omitted when fully optimized). */
+  nextStep?: string;
+  /** UI severity hint. */
+  tone: "info" | "warning" | "success";
+  /** Pillars at target / total applicable pillars for this phenotype. */
+  atTarget: number;
+  applicableCount: number;
+  /** Applicable pillars that are eligible gaps ready to start now. */
+  eligibleGaps: number;
+  /** Days since the most recent medication change among on-therapy pillars, if known. */
+  lastChangeDays?: number;
+}
