@@ -93,6 +93,20 @@ export async function processNotification(body: unknown, deps: AlertServiceDeps)
 
 // ---- Network-backed FHIR deps (consumed by the Bun server, server/index.ts) --
 
+/**
+ * Build the `identifier=system|value` search token for a resource that carries a
+ * stable first identifier (the alert builders stamp one, e.g.
+ * `urn:hf-gdmt:alert|<patient>:<rule>:<date>:task`). Returns null when the resource
+ * has no identifier — such a resource is always created unconditionally. Pure/exported
+ * for tests.
+ */
+export function identifierSearchToken(resource: Json): string | null {
+  const ids = resource.identifier as { system?: string; value?: string }[] | undefined;
+  const first = ids?.[0];
+  if (!first?.value) return null;
+  return first.system ? `${first.system}|${first.value}` : first.value;
+}
+
 export interface FhirDepsConfig {
   /** FHIR base URL to read Observations from. */
   readBase: string;
@@ -122,7 +136,23 @@ export function createFhirDeps(config: FhirDepsConfig): AlertServiceDeps {
       if (!res.ok) throw new Error(`read Observations → ${res.status}`);
       return res.json();
     },
+    // Idempotent create: the alert builders carry a stable identifier, so a repeated
+    // Subscription notification for the same alert must not spawn duplicate artifacts.
+    // Search-then-create (not the If-None-Exist header) mirrors the SPA's approach and
+    // avoids the header being stripped by some servers/CORS.
     createResource: async (resource) => {
+      const token = identifierSearchToken(resource);
+      if (token) {
+        const search = await fetch(
+          `${writeBase}/${resource.resourceType}?identifier=${encodeURIComponent(token)}`,
+          { headers: { Accept: "application/fhir+json", ...authHeader } },
+        );
+        if (search.ok) {
+          const bundle = (await search.json()) as { entry?: { resource?: { id?: string } }[] };
+          const existing = bundle.entry?.[0]?.resource;
+          if (existing?.id) return { id: existing.id };
+        }
+      }
       const res = await fetch(`${writeBase}/${resource.resourceType}`, {
         method: "POST",
         headers: { "Content-Type": "application/fhir+json", Accept: "application/fhir+json", ...authHeader },

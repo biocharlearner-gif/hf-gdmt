@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { buildVitalsSubscription, VITALS_SUBSCRIPTION_CRITERIA } from "../src/fhir/subscription";
-import { patientIdFromNotification, processNotification, type AlertServiceDeps } from "./alertService";
+import { createFhirDeps, identifierSearchToken, patientIdFromNotification, processNotification, type AlertServiceDeps } from "./alertService";
 
 describe("buildVitalsSubscription", () => {
   it("is an active-able rest-hook scoped to vital-signs", () => {
@@ -79,5 +79,63 @@ describe("processNotification", () => {
     expect(result.patientId).toBeNull();
     expect(deps.readObservations).not.toHaveBeenCalled();
     expect(result.created).toHaveLength(0);
+  });
+});
+
+describe("identifierSearchToken", () => {
+  it("builds a system|value token from the first identifier", () => {
+    expect(identifierSearchToken({ identifier: [{ system: "urn:hf-gdmt:alert", value: "p1:spo2:d:task" }] }))
+      .toBe("urn:hf-gdmt:alert|p1:spo2:d:task");
+  });
+  it("falls back to the bare value when there is no system", () => {
+    expect(identifierSearchToken({ identifier: [{ value: "abc" }] })).toBe("abc");
+  });
+  it("returns null when there is no identifier", () => {
+    expect(identifierSearchToken({ resourceType: "Task" })).toBeNull();
+  });
+});
+
+describe("createFhirDeps.createResource (idempotent)", () => {
+  const resource = {
+    resourceType: "Task",
+    identifier: [{ system: "urn:hf-gdmt:alert", value: "p1:spo2:2026-06-21:task" }],
+  };
+
+  it("reuses an existing resource instead of creating a duplicate", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      // The search call returns a bundle with an existing match.
+      if (!init || init.method === undefined) {
+        return new Response(JSON.stringify({ entry: [{ resource: { id: "existing-1" } }] }), { status: 200 });
+      }
+      throw new Error("should not POST when a match exists");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const deps = createFhirDeps({ readBase: "https://fhir.example/r4" });
+    const out = await deps.createResource(resource);
+
+    expect(out.id).toBe("existing-1");
+    expect(fetchMock).toHaveBeenCalledTimes(1); // search only, no POST
+    const [searchUrl] = fetchMock.mock.calls[0]!;
+    expect(searchUrl).toContain("/Task?identifier=");
+    vi.unstubAllGlobals();
+  });
+
+  it("creates when the search finds nothing", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (!init || init.method === undefined) {
+        return new Response(JSON.stringify({ entry: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ id: "new-1" }), { status: 201 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const deps = createFhirDeps({ readBase: "https://fhir.example/r4" });
+    const out = await deps.createResource(resource);
+
+    expect(out.id).toBe("new-1");
+    expect(fetchMock).toHaveBeenCalledTimes(2); // search, then POST
+    expect(fetchMock.mock.calls[1]![1]?.method).toBe("POST");
+    vi.unstubAllGlobals();
   });
 });

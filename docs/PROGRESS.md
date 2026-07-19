@@ -121,6 +121,13 @@ sandbox), not just when code is written.
    grounded plain-language alert explanation, server-side only).
 3. Extend the terminology `$expand` to the engine extract path (`src/fhir/extract.ts`), replacing hardcoded value sets.
 4. Deploy/wire the CDS Hooks service (`src/cds/service.ts`) + SMART-launch link; verify reads/writes against real Epic + a writable sandbox.
+   - **CarePlan publish-back (write-permission aware):** when integrating a real EHR, don't assume
+     `CarePlan.write`. Publish the generated plan as a **`DocumentReference`** (LOINC 18776-5 "Plan of
+     care note", clinical-note) with the `carePlanSummary.ts` handout as the attachment (optionally a
+     FHIR Document Bundle: Composition → CarePlan + Goals + Observations), routed through the read/write
+     split (`fhirClient.writeBaseUrl`). Choose `CarePlan.write` where granted, fall back to
+     DocumentReference where not (often do both). Full design note:
+     `~/.claude/plans/are-their-any-resources-playful-crystal.md`.
 
 ## Feature checklist
 
@@ -195,6 +202,10 @@ sandbox), not just when code is written.
 - [x] Benefit projection in UI — GDMT tab benefit card (current vs. potential vs. incremental RRR from the
   pivotal HFrEF trials, `projectBenefit`); shown for HFrEF only, labelled illustrative-not-predictive.
 - [ ] Multi-EHR proof (Epic + Cerner)
+  - [ ] **Publish CarePlan as a `DocumentReference`** (write-permission-tolerant path — most EHRs gate
+    `CarePlan.write` but allow document write-back). LOINC 18776-5 + `carePlanSummary.ts` attachment,
+    via `fhirClient.writeBaseUrl`; new `buildDocumentReference` in `fhir/writeback.ts` + a "Publish to
+    chart" action on `CarePlanTab.tsx`. Deferred to this phase (see Next-up #4 + the design note).
 - [ ] Demo video + 90-second script
 
 ## Environment / setup notes
@@ -460,4 +471,44 @@ sandbox), not just when code is written.
   (Eleanor/Marcus = Active titration); risk shows HF-001 100/Critical incl. "vulnerable phase 12d (+40)",
   HF-005 63/High incl. "recent 60d (+18)", Marcus no hosp contributor; list column + sort reflect it.
   Next: RAG cited-explanation module.
+- 2026-07-19 (b): **Completed the GDMT CarePlan action → dedicated Care Plan tab.** The old
+  "Generate GDMT CarePlan" button was write-only (plain `createResource`, non-idempotent → duplicates)
+  and never read back — a judge saw an ID, not a deliverable. Now: (1) **New Care Plan tab**
+  (`src/patients/CarePlanTab.tsx`, route + tab in `App.tsx`/`PatientViewPage.tsx`) that detects an
+  existing plan on load (`getCarePlans` by `urn:hf-gdmt:gdmt|<patient>:careplan`), **Generates**
+  idempotently (`createResourceIfNoneExist`), and renders the plan as an artifact: status/created/author,
+  "Addresses <HF condition>", Goals, a per-pillar Activities table (status chip + linked-Task chip), a
+  benefit snapshot, and guideline `CitationLine`s. (2) **Regenerate** rebuilds from the current
+  assessment and `updateResource`s the same id (stays current as gaps close, no dup). (3) **Print / Save
+  PDF** opens a self-contained handout (`carePlanSummary.ts` → new-window `window.print()`). (4) Enriched
+  `buildCarePlan` (`fhir/writeback.ts`): contained `Goal`s, one `activity` per applicable pillar with
+  engine→FHIR `pillarActivityStatus`, `addresses`→HF Condition, `author`, `period`. (5) `getCarePlans` +
+  generic `updateResource` in `patientApi.ts`. (6) GDMT tab's CarePlan card now routes to the tab
+  (removed the non-idempotent inline path + dead `generateCarePlan`). Reused the cohort's curated
+  `HF_FALLBACK_CODES` (includes 417996009 Systolic HF) to pick the `addresses` Condition — a small local
+  set had missed it. 13 tests (`writeback.test.ts` + `carePlanSummary.test.ts`); 125 green, build clean.
+  Verified live against the Medblocks tenant: Eleanor has exactly 1 rich CarePlan (goals/activities/
+  author/addresses); Regenerate keeps 1, same id; Marcus no-plan → Generate → exactly 1 created →
+  addresses "Systolic heart failure"; GDMT card links to the tab. (Skipped seeding a static CarePlan —
+  it would duplicate the builder and drift; the idempotent Generate is one click.) Next: RAG cited
+  explanations; then commit+push the day's work (stage banner, hospitalization risk, 3-col layout,
+  stepper redesign, CarePlan tab — the last of these still uncommitted).
+- 2026-07-19 (c): **Vercel deploy scaffolding — one origin for SPA + BFF.** Vercel can't run a
+  persistent `Bun.serve`, so the BFF's four concerns became thin serverless functions in `api/` that
+  import the SAME pure core (logic lives once); the Bun server (`server/index.ts`) stays for local dev.
+  (1) Factored the FHIR reverse-proxy out of `server/index.ts` into shared `server/fhirProxy.ts`
+  (`proxyFhir(req, url, {fhirBase, token})`), reused by both runtimes. (2) Added `api/fhir/[...path].ts`
+  (authenticated proxy — the app's prod data path, token stays server-side), `api/notify.ts`
+  (Subscription rest-hook target), `api/cds-services.ts` + `api/cds-services/[service].ts` (CDS Hooks
+  discovery + patient-view card, CORS), `api/health.ts`. All use Vercel's documented Web-standard
+  `export default { fetch }` all-methods form (verified against Vercel's Functions API Reference — the
+  bare `export default function handler` is NOT a documented signature). (3) `vercel.json`: build →
+  `dist`, friendly-path rewrites (`/notify`,`/cds-services`,`/health`), SPA client-routing fallback
+  `/((?!api/).*) → /index.html`. (4) **Made the alert-service writeback idempotent** (PROGRESS next-up
+  #1): `createFhirDeps.createResource` now searches by the builder's stable `identifier` and reuses an
+  existing resource instead of POSTing a duplicate (new exported `identifierSearchToken` + 5 tests).
+  130 tests green (was 125), build clean; new `api/`+`server/` files lint clean (the 45 pre-existing
+  lint errors are unrelated SPA files). Runbook in `docs/DEPLOY.md`. **BLOCKER (user action): the actual
+  `vercel` deploy + env vars + `register-subscription` need the user's Vercel auth — see DEPLOY.md.**
+  Once deployed this completes the Subscription E2E and unblocks CDS Hooks. Next: RAG cited explanations.
 - _YYYY-MM-DD: what got done, what's next, any blockers._

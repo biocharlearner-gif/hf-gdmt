@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/cds-services", "destination": "/api/cds-services" },
+    { "source": "/cds-services/:service", "destination": "/api/cds-services/:service" },
+    { "source": "/notify", "destination": "/api/notify" },
+    { "source": "/health", "destination": "/api/health" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ]
+}

@@ -22,6 +22,7 @@
  */
 import { discovery, handlePatientView, SERVICE_ID, type CdsRequest } from "../src/cds/service";
 import { createFhirDeps, processNotification } from "./alertService";
+import { proxyFhir } from "./fhirProxy";
 
 const MEDBLOCKS_FHIR_BASE = (process.env.MEDBLOCKS_FHIR_BASE || "https://hapi.fhir.org/baseR4").replace(/\/$/, "");
 const MEDBLOCKS_TOKEN = process.env.MEDBLOCKS_TOKEN || undefined;
@@ -42,38 +43,6 @@ function json(data: unknown, status = 200, extraHeaders: Record<string, string> 
   return new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json", ...extraHeaders },
-  });
-}
-
-/**
- * Authenticated reverse proxy to the tenant FHIR server. Strips the `/api/fhir`
- * prefix, forwards method/query/body, and injects the Bearer token server-side. No
- * CORS header is emitted here on purpose — this must stay same-origin (via the Vite
- * dev proxy in development, same host in production) so it can't be abused as an open,
- * token-bearing proxy by arbitrary web pages.
- */
-async function proxyFhir(req: Request, url: URL): Promise<Response> {
-  const upstreamPath = url.pathname.slice("/api/fhir".length); // "" or "/Patient/..."
-  const target = `${MEDBLOCKS_FHIR_BASE}${upstreamPath}${url.search}`;
-
-  const headers: Record<string, string> = {
-    Accept: req.headers.get("accept") || "application/fhir+json",
-  };
-  const contentType = req.headers.get("content-type");
-  if (contentType) headers["Content-Type"] = contentType;
-  if (MEDBLOCKS_TOKEN) headers.Authorization = `Bearer ${MEDBLOCKS_TOKEN}`;
-
-  const hasBody = req.method !== "GET" && req.method !== "HEAD";
-  const res = await fetch(target, {
-    method: req.method,
-    headers,
-    body: hasBody ? await req.text() : undefined,
-  });
-
-  const text = await res.text();
-  return new Response(text, {
-    status: res.status,
-    headers: { "Content-Type": res.headers.get("content-type") || "application/fhir+json" },
   });
 }
 
@@ -114,7 +83,7 @@ Bun.serve({
 
       // ---- Authenticated FHIR proxy for the SPA ----------------------------
       if (pathname === "/api/fhir" || pathname.startsWith("/api/fhir/")) {
-        return proxyFhir(req, url);
+        return proxyFhir(req, url, { fhirBase: MEDBLOCKS_FHIR_BASE, token: MEDBLOCKS_TOKEN });
       }
 
       return json({ error: "not found" }, 404);
