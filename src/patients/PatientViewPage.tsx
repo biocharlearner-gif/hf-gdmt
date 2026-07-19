@@ -40,6 +40,7 @@ const TABS: { label: string; segment: string }[] = [
   { label: "Demographics", segment: "demographics" },
   { label: "Clinical", segment: "clinical" },
   { label: "GDMT", segment: "gdmt" },
+  { label: "Care Plan", segment: "careplan" },
   { label: "Vitals", segment: "vitals" },
   { label: "Tasks", segment: "tasks" },
 ];

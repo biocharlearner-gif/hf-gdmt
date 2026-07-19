@@ -16,11 +16,11 @@ import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import { getObservations, getMedications, getConditions, getTasksForPatient, createResource, createResourceIfNoneExist, type FhirResource } from "./patientApi";
+import { getObservations, getMedications, getConditions, getTasksForPatient, createResourceIfNoneExist, type FhirResource } from "./patientApi";
 import { buildEngineInput } from "../fhir/extract";
 import { evaluateGdmt, gdmtStage, isApplicablePillar, type GdmtAssessment, type GdmtStage, type PillarResult, type PillarStatus, type PillarId, type Phenotype } from "../engine/engine";
 import { projectBenefit } from "../engine/benefit";
-import { buildTaskForGap, buildLabServiceRequest, buildCarePlan } from "../fhir/writeback";
+import { buildTaskForGap, buildLabServiceRequest } from "../fhir/writeback";
 import { DEMO_TAG } from "./fhirConfig";
 import { CURRENT_USER } from "./currentUser";
 import { fmtDay } from "./format";
@@ -186,19 +186,6 @@ export default function GdmtTab() {
     }
   }
 
-  async function generateCarePlan() {
-    if (!assessment) return;
-    setAction("careplan", { status: "busy" });
-    try {
-      const idValue = `${patientId}:careplan`;
-      const resource = tagged(buildCarePlan(assessment, taskRefs, { patientRef }), idValue);
-      const created = await createResource(resource);
-      setAction("careplan", { status: "done", msg: `CarePlan created (${created.id ?? "?"})` });
-    } catch (e) {
-      setAction("careplan", { status: "error", msg: e instanceof Error ? e.message : "Failed" });
-    }
-  }
-
   const benefit = useMemo(() => (assessment ? projectBenefit(assessment) : null), [assessment]);
   const stage = useMemo(() => (assessment ? gdmtStage(assessment) : null), [assessment]);
 
@@ -218,24 +205,31 @@ export default function GdmtTab() {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      <PhenotypeBanner
-        phenotype={phenotype}
-        lvef={lvef}
-        onOrderEcho={orderEcho}
-        echoState={actions["echo"] ?? IDLE}
-      />
-
-      {/* "You are here" on the GDMT optimization journey. Skipped for Unknown, where the
-          phenotype banner above already prompts an echo (would just duplicate it). */}
-      {stage && !isUnknown && <StageBanner stage={stage} />}
-
-      {isHfref && (
-        // Score + benefit read as one story (where the patient is / what closing the gaps buys),
-        // so they sit side by side rather than eating two full-width rows.
-        <Box sx={{ display: "grid", gridTemplateColumns: benefit ? "minmax(260px, 1fr) 1.5fr" : "1fr", gap: 2 }}>
-          <ScoreCard assessment={assessment} />
+      {isHfref ? (
+        // The full HFrEF summary reads as three parallel columns to use the width:
+        //   1. who the patient is (phenotype) + where they are (GDMT score),
+        //   2. their stage on the optimization journey,
+        //   3. what closing the gaps is worth (benefit projection).
+        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 2, alignItems: "stretch" }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <PhenotypeBanner phenotype={phenotype} lvef={lvef} onOrderEcho={orderEcho} echoState={actions["echo"] ?? IDLE} />
+            <ScoreCard assessment={assessment} />
+          </Box>
+          {stage && <StageBanner stage={stage} />}
           {benefit && <BenefitCard benefit={benefit} />}
         </Box>
+      ) : (
+        <>
+          <PhenotypeBanner
+            phenotype={phenotype}
+            lvef={lvef}
+            onOrderEcho={orderEcho}
+            echoState={actions["echo"] ?? IDLE}
+          />
+          {/* "You are here" on the GDMT optimization journey. Skipped for Unknown, where the
+              phenotype banner already prompts an echo (would just duplicate it). */}
+          {stage && !isUnknown && <StageBanner stage={stage} />}
+        </>
       )}
 
       <Box>
@@ -267,25 +261,13 @@ export default function GdmtTab() {
               Bundle into a GDMT CarePlan
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Groups the accepted gaps into one Heart Failure GDMT Optimization CarePlan (loop closure).
-              {taskRefs.length > 0 ? ` ${taskRefs.length} Task(s) linked.` : ""}
+              The Care Plan tab bundles these pillars into one Heart Failure GDMT Optimization CarePlan
+              (goals, per-pillar activities, linked Tasks) — created once, viewable, and printable as a patient summary.
+              {taskRefs.length > 0 ? ` ${taskRefs.length} Task(s) will link.` : ""}
             </Typography>
-            {actions["careplan"]?.msg && (
-              <Typography variant="caption" sx={{ color: actions["careplan"]?.status === "error" ? "error.main" : "success.main" }}>
-                {actions["careplan"]?.msg}
-              </Typography>
-            )}
           </Box>
-          <Button
-            variant="contained"
-            disabled={actions["careplan"]?.status === "busy" || actions["careplan"]?.status === "done"}
-            onClick={generateCarePlan}
-          >
-            {actions["careplan"]?.status === "busy"
-              ? "Generating…"
-              : actions["careplan"]?.status === "done"
-                ? "✓ CarePlan created"
-                : "Generate GDMT CarePlan"}
+          <Button variant="contained" endIcon={<ArrowForwardIcon />} component={RouterLink} to={`/patients/${patientId}/careplan`}>
+            Open care plan
           </Button>
         </Paper>
       )}
@@ -347,10 +329,10 @@ function PhenotypeBanner({
   );
 }
 
-const STAGE_STEPS: { label: string }[] = [
-  { label: "Initiation" },
-  { label: "Active titration" },
-  { label: "Optimized" },
+const STAGE_STEPS: { label: string; hint: string }[] = [
+  { label: "Initiation", hint: "Begin the four pillars" },
+  { label: "Active titration", hint: "Up-titrate toward target doses" },
+  { label: "Optimized", hint: "All tolerated pillars at target" },
 ];
 /** Which of the three journey steps a stage maps to (OPTIMIZED_LIMITED shares the last). */
 function stageStepIndex(id: GdmtStage["id"]): number {
@@ -363,70 +345,89 @@ const STAGE_TONE: Record<GdmtStage["tone"], { fg: string; bg: string; border: st
   warning: { fg: "#b45309", bg: "#fffbeb", border: "#fde68a" },
   success: { fg: "#15803d", bg: "#f0fdf4", border: "#bbf7d0" },
 };
+const MUTED = "#94a3b8";
+const RAIL = "#e2e8f0";
 
 /**
  * "You are here" on the GDMT optimization journey — the stage a HF clinician actually
  * reasons in (initiation → active titration → optimized), computed deterministically by
  * the engine from the pillar statuses. Answers "which stage is this patient in?" without
- * any EHR visit-type data.
+ * any EHR visit-type data. Rendered as a vertical stepper so it reads top-to-bottom in a
+ * narrow column: completed steps checked, the current step highlighted with its live
+ * detail, upcoming steps muted.
  */
 function StageBanner({ stage }: { stage: GdmtStage }) {
   const active = stageStepIndex(stage.id);
   const tone = STAGE_TONE[stage.tone];
   return (
-    <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, borderColor: tone.border, bgcolor: tone.bg }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1.5, flexWrap: "wrap" }}>
+    <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, borderColor: tone.border, bgcolor: tone.bg, display: "flex", flexDirection: "column" }}>
+      <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 1, mb: 1.75 }}>
         <Typography variant="overline" sx={{ fontWeight: 700, color: "text.secondary", lineHeight: 1 }}>
           GDMT journey
         </Typography>
-        <Chip size="small" label={stage.label} sx={{ bgcolor: tone.fg, color: "#fff", fontWeight: 700 }} />
         {stage.lastChangeDays !== undefined && (
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" sx={{ color: "text.secondary", whiteSpace: "nowrap" }}>
             last change {stage.lastChangeDays}d ago
           </Typography>
         )}
       </Box>
 
-      {/* Three-step progress rail */}
-      <Box sx={{ display: "flex", alignItems: "center", mb: 1.5 }}>
+      {/* Vertical stepper */}
+      <Box sx={{ flexGrow: 1 }}>
         {STAGE_STEPS.map((s, i) => {
           const done = i < active;
           const current = i === active;
-          const dotColor = done || current ? tone.fg : "#cbd5e1";
+          const last = i === STAGE_STEPS.length - 1;
+          const labelColor = current ? tone.fg : done ? "text.primary" : MUTED;
           return (
-            <Box key={s.label} sx={{ display: "flex", alignItems: "center", flex: i < STAGE_STEPS.length - 1 ? 1 : "0 0 auto" }}>
-              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
-                <Box
-                  sx={{
-                    width: current ? 16 : 12,
-                    height: current ? 16 : 12,
-                    borderRadius: "50%",
-                    bgcolor: dotColor,
-                    boxShadow: current ? `0 0 0 4px ${tone.bg}, 0 0 0 5px ${tone.fg}` : "none",
-                  }}
-                />
-                <Typography
-                  variant="caption"
-                  sx={{ fontWeight: current ? 700 : 500, color: current ? tone.fg : "text.secondary", whiteSpace: "nowrap" }}
-                >
+            <Box key={s.label} sx={{ display: "flex", gap: 1.5 }}>
+              {/* marker + connector rail */}
+              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+                {done ? (
+                  <CheckCircleIcon sx={{ fontSize: 24, color: tone.fg }} />
+                ) : (
+                  <Box
+                    sx={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      bgcolor: current ? tone.fg : "#fff",
+                      border: current ? "none" : `2px solid ${RAIL}`,
+                      boxShadow: current ? `0 0 0 4px ${tone.bg}` : "none",
+                    }}
+                  >
+                    <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: current ? "#fff" : MUTED }} />
+                  </Box>
+                )}
+                {!last && <Box sx={{ flexGrow: 1, width: 2, minHeight: 18, my: 0.5, bgcolor: done ? tone.fg : RAIL }} />}
+              </Box>
+
+              {/* label + detail */}
+              <Box sx={{ pb: last ? 0 : 1.5, pt: 0.15, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: current ? 800 : 600, color: labelColor, lineHeight: 1.3 }}>
                   {s.label}
                 </Typography>
+                <Typography variant="caption" sx={{ color: current ? "text.secondary" : MUTED, display: "block", lineHeight: 1.35 }}>
+                  {current ? stage.summary : s.hint}
+                </Typography>
               </Box>
-              {i < STAGE_STEPS.length - 1 && (
-                <Box sx={{ flex: 1, height: 2, mx: 1, mb: 2.5, bgcolor: i < active ? tone.fg : "#e2e8f0" }} />
-              )}
             </Box>
           );
         })}
       </Box>
 
-      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-        {stage.summary}
-      </Typography>
       {stage.nextStep && (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-          Next: {stage.nextStep}
-        </Typography>
+        <Box sx={{ mt: 1, p: 1.25, borderRadius: 1.5, bgcolor: "#fff", border: `1px solid ${tone.border}` }}>
+          <Typography variant="caption" sx={{ fontWeight: 800, color: tone.fg, letterSpacing: 0.4, display: "block", mb: 0.25 }}>
+            NEXT STEP
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.4 }}>
+            {stage.nextStep}
+          </Typography>
+        </Box>
       )}
     </Paper>
   );

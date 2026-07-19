@@ -121,7 +121,7 @@ export function gdmtStage(assessment: GdmtAssessment): GdmtStage {
     ...base,
     id: "TITRATION",
     label: "Active titration",
-    summary: `${atTarget} of ${applicableCount} pillars at target; ${actionable} still to optimize${lastChangeDays !== undefined ? ` · last change ${lastChangeDays}d ago` : ""}.`,
+    summary: `${atTarget} of ${applicableCount} pillars at target; ${actionable} still to optimize.`,
     nextStep: "Up-titrate sub-target pillars and close eligible gaps at ~2-week intervals.",
     tone: "info",
   };

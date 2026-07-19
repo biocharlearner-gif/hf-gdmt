@@ -10,6 +10,7 @@ import PatientViewPage from "./patients/PatientViewPage";
 import DemographicsPage from "./patients/DemographicsPage";
 import ClinicalTab from "./patients/ClinicalTab";
 import GdmtTab from "./patients/GdmtTab";
+import CarePlanTab from "./patients/CarePlanTab";
 import VitalsTab from "./patients/VitalsTab";
 import PatientTasksPage from "./patients/PatientTasksPage";
 import TasksPage from "./patients/TasksPage";
@@ -29,6 +30,7 @@ export default function App() {
                     <Route path="demographics" element={<DemographicsPage />} />
                     <Route path="clinical" element={<ClinicalTab />} />
                     <Route path="gdmt" element={<GdmtTab />} />
+                    <Route path="careplan" element={<CarePlanTab />} />
                     <Route path="vitals" element={<VitalsTab />} />
                     <Route path="tasks" element={<PatientTasksPage />} />
                 </Route>

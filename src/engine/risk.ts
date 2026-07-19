@@ -47,6 +47,35 @@ const HOSP_VULNERABLE_POINTS = 40; // within the vulnerable phase — near a "hi
 const HOSP_RECENT_POINTS = 18;     // recent but past the vulnerable window
 const HOSP_CITATION = "AHA-ACC-HFSA-2022-8-transitions";
 
+/**
+ * Human-facing description of how the score is computed — the single source the UI
+ * (risk tooltips) reads, so the explanation never drifts from the actual weights/bands.
+ */
+export const RISK_SCORING = {
+  severityPoints: SEVERITY_POINTS,
+  hospVulnerablePoints: HOSP_VULNERABLE_POINTS,
+  hospRecentPoints: HOSP_RECENT_POINTS,
+  hospVulnerableDays: THRESHOLDS.hfHospVulnerableDays,
+  hospRecentDays: THRESHOLDS.hfHospRecentDays,
+  /** Score → band cutoffs (min inclusive), high to low. */
+  bands: [
+    { band: "Critical" as const, range: "70+" },
+    { band: "High" as const, range: "45–69" },
+    { band: "Moderate" as const, range: "20–44" },
+    { band: "Low" as const, range: "1–19" },
+    { band: "Stable" as const, range: "0" },
+  ],
+  /** The vital/clinical signals the alert engine can raise (drivers of the score). */
+  factors: [
+    "Rapid weight gain (fluid retention)",
+    "Low blood pressure (titration-limiting)",
+    "Bradycardia / tachycardia",
+    "Low oxygen saturation",
+    "Predictive trends (rising weight, declining SpO₂)",
+    "Recent HF hospitalization (vulnerable post-discharge phase)",
+  ],
+} as const;
+
 function bandFor(score: number): RiskBand {
   if (score >= 70) return "Critical";
   if (score >= 45) return "High";

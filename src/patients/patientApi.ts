@@ -264,6 +264,33 @@ export async function getTasksForPatient(patientId: string): Promise<FhirResourc
     .filter((r): r is FhirResource => r?.resourceType === "Task");
 }
 
+/**
+ * Fetch a patient's CarePlans, newest first. The GDMT plan is found by its
+ * `urn:hf-gdmt:gdmt|<patient>:careplan` identifier (search-then-create keeps it unique).
+ */
+export async function getCarePlans(patientId: string): Promise<FhirResource[]> {
+  const params = new URLSearchParams();
+  params.set("patient", patientId);
+  params.set("_count", "50");
+  params.set("_sort", "-date");
+  const bundle = (await request(`CarePlan?${params.toString()}`)) as {
+    entry?: Array<{ resource?: FhirResource }>;
+  };
+  return (bundle.entry ?? [])
+    .map((e) => e.resource)
+    .filter((r): r is FhirResource => r?.resourceType === "CarePlan");
+}
+
+/** Persist any resource in place via a full PUT to `${resourceType}/${id}`. */
+export function updateResource(resource: FhirResource): Promise<FhirResource> {
+  const id = resource.id as string | undefined;
+  if (!id) throw new Error(`${resource.resourceType} has no id`);
+  return request(`${resource.resourceType}/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(resource),
+  }) as Promise<FhirResource>;
+}
+
 /** Create any FHIR resource on the HAPI server (used for alert writeback artifacts). */
 export function createResource(resource: FhirResource): Promise<FhirResource> {
   return request(resource.resourceType, {

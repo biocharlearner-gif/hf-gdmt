@@ -6,6 +6,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Divider,
   Menu,
   MenuItem,
   Paper,
@@ -17,9 +18,11 @@ import {
   TableRow,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutlineOutlined";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ScaleIcon from "@mui/icons-material/MonitorWeightOutlined";
 import BloodtypeIcon from "@mui/icons-material/BloodtypeOutlined";
 import FavoriteIcon from "@mui/icons-material/FavoriteBorder";
@@ -34,7 +37,7 @@ import EastIcon from "@mui/icons-material/East";
 import { getObservations, getTasksForPatient, getEncounters, createResourceIfNoneExist, type FhirResource } from "./patientApi";
 import { buildAlertInput, buildHospitalizationSignal } from "../fhir/extract";
 import { evaluateAlerts, type GdmtAlert, type AlertSeverity } from "../engine/alerts";
-import { computeRiskScore, type HospitalizationSignal } from "../engine/risk";
+import { computeRiskScore, RISK_SCORING, type HospitalizationSignal } from "../engine/risk";
 import { buildDetectedIssue, buildFlagForAlert, buildTaskForAlert, alertKey, ALERT_IDENTIFIER_SYSTEM } from "../fhir/writeback";
 import { CURRENT_USER } from "./currentUser";
 import { RISK_COLOR } from "./riskColors";
@@ -576,15 +579,62 @@ function RiskPanel({ risk }: { risk: ReturnType<typeof computeRiskScore> }) {
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Typography variant="overline" sx={{ fontWeight: 700, color: "text.secondary" }}>HF Risk Score</Typography>
           <Chip size="small" label={risk.band} sx={{ bgcolor: c.bg, color: c.fg, fontWeight: 800 }} />
+          <Tooltip title={<RiskInfoContent />} arrow>
+            <InfoOutlinedIcon sx={{ fontSize: 16, color: "text.disabled", cursor: "help" }} />
+          </Tooltip>
         </Box>
         <Typography variant="body2" color="text.secondary">
-          {risk.contributors.length === 0
-            ? "No active alerts — vitals within guideline-cited thresholds."
-            : `Driven by: ${risk.contributors.map((x) => `${x.title} (+${x.points})`).join(", ")}`}
+          How concerning this patient's home vitals are right now (0–100; higher is worse).
         </Typography>
+
+        {/* This patient's calculation — the exact contributors that sum to the score. */}
+        {risk.contributors.length === 0 ? (
+          <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600, color: c.fg }}>
+            No active alerts → Stable (0).
+          </Typography>
+        ) : (
+          <Box sx={{ mt: 0.5, display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>Driven by:</Typography>
+            {risk.contributors.map((x, i) => (
+              <Chip key={`${x.title}-${i}`} size="small" variant="outlined" label={`${x.title} +${x.points}`} sx={{ fontWeight: 600 }} />
+            ))}
+            <Typography variant="body2" color="text.secondary">= {risk.score} (capped at 100)</Typography>
+          </Box>
+        )}
         {citedRef && <CitationLine citationRef={citedRef} />}
       </Box>
     </Paper>
+  );
+}
+
+/** Hover explanation for the risk score: what it is, the signals considered, and the formula. */
+function RiskInfoContent() {
+  const s = RISK_SCORING;
+  return (
+    <Box sx={{ p: 0.5, maxWidth: 320 }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>What this is</Typography>
+      <Typography variant="caption" sx={{ display: "block", opacity: 0.9 }}>
+        A single 0–100 measure of how concerning this patient's home vitals are right now — used to triage
+        the cohort sickest-first. Higher is worse.
+      </Typography>
+
+      <Divider sx={{ my: 0.75, borderColor: "rgba(255,255,255,0.25)" }} />
+
+      <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>Factors considered</Typography>
+      <Typography variant="caption" sx={{ display: "block", opacity: 0.9 }}>{s.factors.join(" · ")}</Typography>
+
+      <Divider sx={{ my: 0.75, borderColor: "rgba(255,255,255,0.25)" }} />
+
+      <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>How it's calculated</Typography>
+      <Typography variant="caption" sx={{ display: "block", opacity: 0.9 }}>
+        Severity-weighted sum, capped at 100. Each alert adds High +{s.severityPoints.high} ·
+        Moderate +{s.severityPoints.moderate} · Low +{s.severityPoints.low}; a recent HF hospitalization adds
+        +{s.hospVulnerablePoints} (≤{s.hospVulnerableDays}d) or +{s.hospRecentPoints} (≤{s.hospRecentDays}d).
+      </Typography>
+      <Typography variant="caption" sx={{ display: "block", opacity: 0.9, mt: 0.5 }}>
+        Bands: {s.bands.map((b) => `${b.band} ${b.range}`).join(" · ")}.
+      </Typography>
+    </Box>
   );
 }
 

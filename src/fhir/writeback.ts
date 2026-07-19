@@ -1,5 +1,6 @@
-import type { GdmtAssessment, PillarResult } from "../engine/types";
+import type { GdmtAssessment, PillarResult, PillarStatus } from "../engine/types";
 import type { GdmtAlert } from "../engine/alerts";
+import { isApplicablePillar } from "../engine/engine";
 
 /**
  * Build FHIR R4 write-back payloads from the assessment. These are plain objects
@@ -15,6 +16,19 @@ export interface BuildOpts {
   patientRef: string;            // e.g. "Patient/abc" or absolute URL
   requesterRef?: string;         // e.g. "Practitioner/123"
   conditionRef?: string;         // HF Condition reference for reasonReference
+  authorDisplay?: string;        // CarePlan.author.display (kept out of the pure builder's imports)
+}
+
+/** Map an engine pillar status to a FHIR R4 CarePlanActivityStatus. Pure, exported for tests. */
+export function pillarActivityStatus(status: PillarStatus): string {
+  switch (status) {
+    case "ON_TARGET": return "completed";
+    case "ON_SUBTARGET": return "in-progress";
+    case "GAP_ELIGIBLE":
+    case "GAP_LABS_NEEDED": return "not-started";
+    case "CONTRAINDICATED": return "on-hold";
+    default: return "unknown"; // INSUFFICIENT_DATA
+  }
 }
 
 const GAP_STATUSES = new Set(["GAP_ELIGIBLE", "ON_SUBTARGET"]);
@@ -58,10 +72,45 @@ export function buildCarePlan(
   taskRefs: string[],
   opts: BuildOpts,
 ): Record<string, unknown> {
-  const gaps = assessment.pillars.filter((p) => GAP_STATUSES.has(p.status));
+  const now = new Date().toISOString();
+  const applicable = assessment.pillars.filter((p) => isApplicablePillar(assessment.phenotype, p.id));
+  const gaps = applicable.filter((p) => GAP_STATUSES.has(p.status));
+  const eligibleGaps = applicable.filter((p) => p.status === "GAP_ELIGIBLE").length;
   const narrative =
     `GDMT optimization plan. Current GDMT score ${assessment.gdmtScore}/4. ` +
     `Targeting: ${gaps.map((g) => g.label).join("; ") || "none — at goal"}.`;
+
+  // Contained Goals travel with the plan (single create/read), still valid R4.
+  const goals: Record<string, unknown>[] = [
+    {
+      resourceType: "Goal",
+      id: "goal-target",
+      lifecycleStatus: "active",
+      description: { text: "Achieve target-dose GDMT across all eligible pillars" },
+      subject: { reference: opts.patientRef },
+    },
+  ];
+  if (eligibleGaps > 0) {
+    goals.push({
+      resourceType: "Goal",
+      id: "goal-gaps",
+      lifecycleStatus: "active",
+      description: { text: `Close ${eligibleGaps} eligible GDMT gap(s) now` },
+      subject: { reference: opts.patientRef },
+    });
+  }
+
+  // One activity per applicable pillar (detail), plus the accepted-gap Task references.
+  const pillarActivities = applicable.map((p) => ({
+    detail: {
+      kind: p.status === "GAP_LABS_NEEDED" ? "ServiceRequest" : "MedicationRequest",
+      code: { text: p.label },
+      status: pillarActivityStatus(p.status),
+      description: p.reason,
+    },
+  }));
+  const taskActivities = taskRefs.map((ref) => ({ reference: { reference: ref } }));
+
   return {
     resourceType: "CarePlan",
     status: "active",
@@ -69,10 +118,14 @@ export function buildCarePlan(
     title: "Heart Failure GDMT Optimization",
     description: narrative,
     subject: { reference: opts.patientRef },
-    created: new Date().toISOString(),
+    created: now,
+    period: { start: now },
     category: [{ text: "Heart failure GDMT" }],
+    ...(opts.authorDisplay ? { author: { display: opts.authorDisplay } } : {}),
     ...(opts.conditionRef ? { addresses: [{ reference: opts.conditionRef }] } : {}),
-    activity: taskRefs.map((ref) => ({ reference: { reference: ref } })),
+    contained: goals,
+    goal: goals.map((g) => ({ reference: `#${g.id as string}` })),
+    activity: [...pillarActivities, ...taskActivities],
     text: {
       status: "generated",
       div: `<div xmlns="http://www.w3.org/1999/xhtml">${narrative}</div>`,
