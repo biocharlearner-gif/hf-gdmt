@@ -23,6 +23,8 @@ export const CITATIONS: Record<string, Citation> = {
   "AHA-ACC-HFSA-2022-7.3.2": { source: "2022 AHA/ACC/HFSA HF Guideline", section: "§7.3.2 — Beta-blockers", url: HF_GUIDELINE_URL },
   "AHA-ACC-HFSA-2022-7.3.3": { source: "2022 AHA/ACC/HFSA HF Guideline", section: "§7.3.3 — MRA", url: HF_GUIDELINE_URL },
   "AHA-ACC-HFSA-2022-7.3.4": { source: "2022 AHA/ACC/HFSA HF Guideline", section: "§7.3.4 — SGLT2 inhibitors", url: HF_GUIDELINE_URL },
+  "AHA-ACC-HFSA-2022-7.3-titration": { source: "2022 AHA/ACC/HFSA HF Guideline", section: "§7.3 — GDMT titration to target at ~2-week intervals", url: HF_GUIDELINE_URL },
+  "AHA-ACC-HFSA-2022-8-transitions": { source: "2022 AHA/ACC/HFSA HF Guideline", section: "§8 — Hospitalization & the vulnerable post-discharge phase", url: HF_GUIDELINE_URL },
   // Daily-weight self-monitoring guidance lives in the same joint guideline (HFSA co-author).
   "HFSA-selfcare-weight-monitoring": { source: "2022 AHA/ACC/HFSA HF Guideline", section: "§10.1 — Self-care: daily weight monitoring", url: HF_GUIDELINE_URL },
   "general-red-flag-spo2": { source: "General clinical red flag", section: "Low oxygen saturation (not HF-specific)" },
@@ -32,3 +34,20 @@ export const CITATIONS: Record<string, Citation> = {
 export function resolveCitation(ref: string): Citation {
   return CITATIONS[ref] ?? { source: ref, section: "" };
 }
+
+/** True if `ref` resolves to a known citation (vs. an opaque/plain-text source). */
+export function isKnownCitation(ref: string): boolean {
+  return ref in CITATIONS;
+}
+
+/**
+ * Guideline citation for a remote-monitoring alert vital. Lets the Tasks UI render a
+ * proper source deep-link even for Tasks whose stored note only says a generic source
+ * (e.g. seeded "HF remote-monitoring"). Mirrors the citationRefs the alert engine emits.
+ */
+export const VITAL_CITATION_REF: Record<string, string> = {
+  weight: "HFSA-selfcare-weight-monitoring",
+  bloodPressure: "AHA-ACC-HFSA-2022-7.3.1",
+  heartRate: "AHA-ACC-HFSA-2022-7.3.2",
+  spo2: "general-red-flag-spo2",
+};

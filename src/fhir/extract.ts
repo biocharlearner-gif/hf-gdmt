@@ -1,5 +1,6 @@
 import type { Dated, EngineInput, MedicationFact } from "../engine/types";
 import type { AlertInput, VitalReading } from "../engine/alerts";
+import type { HospitalizationSignal } from "../engine/risk";
 import { LOINC, SNOMED, classifyMed } from "../engine/codes";
 
 /* Minimal FHIR typings — enough for extraction without pulling a full FHIR package. */
@@ -42,6 +43,30 @@ function parseDailyDoseMg(mr: any): number | undefined {
     return dose.value * perDay;
   }
   return undefined;
+}
+
+/**
+ * Statuses that mean "the patient is taking this drug right now", across both
+ * MedicationRequest.status and MedicationStatement.status (R4).
+ *
+ * Only `active` and `on-hold` qualify. `on-hold` is a temporary suspension of an
+ * established prescription, so it still counts as being on the pillar — recommending
+ * a start for a drug that is merely held (e.g. for transient hyperkalemia) would be
+ * wrong. Everything else means not-on-therapy, notably:
+ *   - `completed`  — the course finished; for chronic GDMT that is the opposite of on-therapy
+ *   - `intended`   — MedicationStatement: planned, not yet taken
+ *   - `draft`      — MedicationRequest: prescription not yet issued
+ *   - `stopped` / `cancelled` / `not-taken` / `entered-in-error` / `unknown`
+ *
+ * This is deliberately NOT the same predicate as `medicationActivity` in
+ * `src/patients/clinicalData.ts`, and the two must not be merged. That one drives a
+ * display filter, where an unrecognised status falls back to *active* so a row is never
+ * silently hidden. Here an unrecognised status must fall back to *not* on therapy: a
+ * false "on therapy" silently closes a real GDMT gap, which is the failure mode this
+ * engine exists to prevent. Same word, opposite safe default.
+ */
+function isOnTherapy(status: string): boolean {
+  return status === "active" || status === "on-hold";
 }
 
 /**
@@ -88,7 +113,8 @@ export function buildEngineInput(opts: {
       rxnorm,
       pillar: classifyMed(name),
       dailyDoseMg: parseDailyDoseMg(m),
-      active: ["active", "completed", "intended", "on-hold"].includes(status) && status !== "stopped",
+      active: isOnTherapy(status),
+      startedOn: typeof m.authoredOn === "string" ? m.authoredOn : undefined,
     };
   });
 
@@ -165,6 +191,58 @@ export function buildAlertInput(opts: {
     spo2: dated(spo2Obs ? obsValue(spo2Obs) : undefined, spo2Obs ? obsDate(spo2Obs) : undefined),
     spo2SeriesPct,
   };
+}
+
+/** SNOMED codes that mark an Encounter as heart-failure-related (HF + common variants). */
+const HF_ENCOUNTER_SNOMED = new Set([
+  SNOMED.HEART_FAILURE, SNOMED.HFREF,
+  "42343007",  // Congestive heart failure
+  "88805009",  // Chronic congestive heart failure
+  "56675007",  // Acute heart failure
+]);
+
+/** R4 Encounter.class inpatient/acute codes (v3 ActCode). */
+const INPATIENT_CLASS = new Set(["IMP", "ACUTE", "NONAC"]);
+
+function isInpatient(enc: any): boolean {
+  const code = enc.class?.code ?? enc.class?.coding?.[0]?.code;
+  return typeof code === "string" && INPATIENT_CLASS.has(code);
+}
+
+function isHfEncounter(enc: any): boolean {
+  const ccs: CodeableConcept[] = [...(enc.reasonCode ?? []), ...(enc.type ?? [])];
+  for (const cc of ccs) {
+    for (const c of cc.coding ?? []) {
+      if (c.code && HF_ENCOUNTER_SNOMED.has(c.code)) return true;
+      if ((c.code ?? "").toUpperCase().startsWith("I50")) return true; // ICD-10 HF family
+      if (/heart failure/i.test(c.display ?? "")) return true;
+    }
+    if (/heart failure/i.test(cc.text ?? "")) return true;
+  }
+  return false;
+}
+
+/**
+ * Most recent HF-related inpatient stay as a risk signal, or undefined if none.
+ * Discharge date = Encounter.period.end (falls back to start for an ongoing stay).
+ * `now` is injected to keep the derived day-count deterministic.
+ */
+export function buildHospitalizationSignal(opts: {
+  now?: string;
+  encounters: Bundle | FhirResource[];
+}): HospitalizationSignal | undefined {
+  const now = opts.now ?? new Date().toISOString();
+  const hf = resources(opts.encounters)
+    .filter((r) => r.resourceType === "Encounter")
+    .filter((e: any) => isInpatient(e) && isHfEncounter(e))
+    .map((e: any) => ({ when: e.period?.end ?? e.period?.start }))
+    .filter((x): x is { when: string } => typeof x.when === "string")
+    .sort((a, b) => b.when.localeCompare(a.when));
+
+  const latest = hf[0];
+  if (!latest) return undefined;
+  const days = Math.max(0, Math.floor((Date.parse(now) - Date.parse(latest.when)) / (24 * 60 * 60 * 1000)));
+  return { daysSinceDischarge: days, when: latest.when };
 }
 
 export { SNOMED };

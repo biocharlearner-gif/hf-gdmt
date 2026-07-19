@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluateAlerts } from "./alerts";
+import { evaluateAlerts, evaluateOutcomeAlerts } from "./alerts";
 import type { AlertInput, VitalReading } from "./alerts";
 
 const NOW = "2026-06-16T00:00:00.000Z";
@@ -49,6 +49,37 @@ describe("evaluateAlerts — weight", () => {
   it("needs at least two readings", () => {
     const a = evaluateAlerts(baseInput({ weightSeriesKg: series([0, 90]) }));
     expect(a.some((x) => x.vital === "weight")).toBe(false);
+  });
+});
+
+describe("evaluateOutcomeAlerts — recency-independent (alert→outcome loop)", () => {
+  // Readings well outside the 14-day window: a stale device, latest value still low.
+  const staleAbnormal = baseInput({
+    weightSeriesKg: [],
+    systolicBp: { value: 86, date: daysAgo(30) },
+    heartRate: { value: 72, date: daysAgo(30) },
+    spo2: { value: 98, date: daysAgo(30) },
+    spo2SeriesPct: [],
+  });
+
+  it("evaluateAlerts drops it as stale (no live alert)", () => {
+    expect(evaluateAlerts(staleAbnormal).some((x) => x.vital === "bloodPressure")).toBe(false);
+  });
+
+  it("evaluateOutcomeAlerts still flags it (last reading 86 < 90 → still abnormal)", () => {
+    const a = evaluateOutcomeAlerts(staleAbnormal);
+    expect(a.some((x) => x.vital === "bloodPressure")).toBe(true);
+  });
+
+  it("does not flag a vital whose latest reading is now normal (→ improved)", () => {
+    const recovered = baseInput({
+      weightSeriesKg: [],
+      systolicBp: { value: 118, date: daysAgo(30) },
+      heartRate: { value: 72, date: daysAgo(30) },
+      spo2: { value: 98, date: daysAgo(30) },
+      spo2SeriesPct: [],
+    });
+    expect(evaluateOutcomeAlerts(recovered).some((x) => x.vital === "bloodPressure")).toBe(false);
   });
 });
 

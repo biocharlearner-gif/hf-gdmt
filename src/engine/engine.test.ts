@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { evaluateGdmt, determinePhenotype } from "./engine";
-import type { EngineInput } from "./types";
+import { evaluateGdmt, determinePhenotype, gdmtStage } from "./engine";
+import type { EngineInput, MedicationFact } from "./types";
 
 const NOW = "2026-06-16T00:00:00.000Z";
 const recent = (value: number) => ({ value, date: "2026-05-20T00:00:00.000Z" });
@@ -57,5 +57,103 @@ describe("evaluateGdmt", () => {
     const mra = a.pillars.find((p) => p.id === "MRA")!;
     expect(mra.status).toBe("GAP_LABS_NEEDED");
     expect(a.labsNeeded.length).toBeGreaterThan(0);
+  });
+});
+
+describe("gdmtStage", () => {
+  const onTarget: MedicationFact[] = [
+    { name: "sacubitril/valsartan", pillar: "RAASi", dailyDoseMg: 400, active: true },
+    { name: "carvedilol", pillar: "BetaBlocker", dailyDoseMg: 50, active: true },
+    { name: "spironolactone", pillar: "MRA", dailyDoseMg: 50, active: true },
+    { name: "dapagliflozin", pillar: "SGLT2i", dailyDoseMg: 10, active: true },
+  ];
+
+  it("stages an untreated HFrEF patient as Initiation", () => {
+    const s = gdmtStage(evaluateGdmt(baseInput()));
+    expect(s.id).toBe("INITIATION");
+    expect(s.applicableCount).toBe(4);
+    expect(s.atTarget).toBe(0);
+    expect(s.eligibleGaps).toBe(4);
+  });
+
+  it("stages a partially-treated HFrEF patient as active titration", () => {
+    const s = gdmtStage(evaluateGdmt(baseInput({ medications: [onTarget[1]!] })));
+    expect(s.id).toBe("TITRATION");
+    expect(s.atTarget).toBe(1);
+  });
+
+  it("stages a fully-optimized HFrEF patient as Optimized", () => {
+    const s = gdmtStage(evaluateGdmt(baseInput({ medications: onTarget })));
+    expect(s.id).toBe("OPTIMIZED");
+    expect(s.atTarget).toBe(4);
+    expect(s.nextStep).toBeUndefined();
+  });
+
+  it("stages Optimized-within-limits when the only unmet pillar is contraindicated", () => {
+    // Three pillars at target; MRA blocked by hyperkalemia and not on therapy → nothing more actionable.
+    const noMra = onTarget.filter((m) => m.pillar !== "MRA");
+    const s = gdmtStage(evaluateGdmt(baseInput({
+      medications: noMra,
+      labs: { potassium: recent(5.6), egfr: recent(60) },
+    })));
+    const mra = evaluateGdmt(baseInput({ medications: noMra, labs: { potassium: recent(5.6), egfr: recent(60) } }))
+      .pillars.find((p) => p.id === "MRA")!;
+    expect(mra.status).toBe("CONTRAINDICATED");
+    expect(s.id).toBe("OPTIMIZED_LIMITED");
+    expect(s.atTarget).toBe(3);
+  });
+
+  it("stages an unknown phenotype as phenotype-pending", () => {
+    const s = gdmtStage(evaluateGdmt(baseInput({ lvef: undefined })));
+    expect(s.id).toBe("PHENOTYPE_PENDING");
+    expect(s.applicableCount).toBe(0);
+  });
+
+  it("stages HFmrEF over the single SGLT2i pillar", () => {
+    // LVEF 45 → HFmrEF; only SGLT2i applies. Not on it → Initiation over 1 pillar.
+    const s = gdmtStage(evaluateGdmt(baseInput({ lvef: recent(45) })));
+    expect(s.applicableCount).toBe(1);
+    expect(s.id).toBe("INITIATION");
+  });
+});
+
+describe("evaluateGdmt — titration timing", () => {
+  // NOW is 2026-06-16; carvedilol 12.5 of a 50 mg target is ON_SUBTARGET.
+  const daysBefore = (n: number) =>
+    new Date(new Date(NOW).getTime() - n * 24 * 60 * 60 * 1000).toISOString();
+  const subTargetBB = (startedOn?: string) => ({
+    name: "carvedilol", pillar: "BetaBlocker" as const, dailyDoseMg: 12.5, active: true, startedOn,
+  });
+  const bbOf = (input: Parameters<typeof baseInput>[0]) =>
+    evaluateGdmt(baseInput(input)).pillars.find((p) => p.id === "BetaBlocker")!;
+
+  it("flags a sub-target agent past the titration interval as overdue", () => {
+    const bb = bbOf({ medications: [subTargetBB(daysBefore(30))] });
+    expect(bb.status).toBe("ON_SUBTARGET");
+    expect(bb.titration).toBeDefined();
+    expect(bb.titration!.overdue).toBe(true);
+    expect(bb.titration!.daysOnTherapy).toBe(30);
+    expect(bb.agent!.startedOn).toBe(daysBefore(30));
+  });
+
+  it("does not flag a recently started sub-target agent", () => {
+    const bb = bbOf({ medications: [subTargetBB(daysBefore(5))] });
+    expect(bb.status).toBe("ON_SUBTARGET");
+    expect(bb.titration!.overdue).toBe(false);
+  });
+
+  it("never flags an on-target agent regardless of how long ago it started", () => {
+    const bb = bbOf({
+      medications: [{ name: "carvedilol", pillar: "BetaBlocker", dailyDoseMg: 50, active: true, startedOn: daysBefore(365) }],
+    });
+    expect(bb.status).toBe("ON_TARGET");
+    expect(bb.titration!.overdue).toBe(false);
+  });
+
+  it("omits titration when the agent has no start date", () => {
+    const bb = bbOf({ medications: [subTargetBB(undefined)] });
+    expect(bb.status).toBe("ON_SUBTARGET");
+    expect(bb.titration).toBeUndefined();
+    expect(bb.agent!.startedOn).toBeUndefined();
   });
 });

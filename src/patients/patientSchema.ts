@@ -104,6 +104,11 @@ export const patientSchema = z.object({
   country: optionalString.pipe(
     z.string().max(50, "Max 50 characters").regex(ALPHA_SPACE, "Only alphabets allowed").optional(),
   ),
+
+  // Primary diagnosis / problem-list entry. Optional in the schema so the Edit flow
+  // (which doesn't load Conditions) still validates; the Add dialog enforces it and
+  // uses it to write a coded Condition + place the patient in the HF / Non-HF cohort.
+  problem: optionalString,
 });
 
 export type PatientFormValues = z.input<typeof patientSchema>;
@@ -123,4 +128,5 @@ export const emptyPatientForm: PatientFormValues = {
   state: "",
   zip: "",
   country: "",
+  problem: "",
 };

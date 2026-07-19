@@ -6,7 +6,7 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Link,
+  Divider,
   Menu,
   MenuItem,
   Paper,
@@ -18,28 +18,32 @@ import {
   TableRow,
   ToggleButton,
   ToggleButtonGroup,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutlineOutlined";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ScaleIcon from "@mui/icons-material/MonitorWeightOutlined";
 import BloodtypeIcon from "@mui/icons-material/BloodtypeOutlined";
 import FavoriteIcon from "@mui/icons-material/FavoriteBorder";
 import AirIcon from "@mui/icons-material/AirOutlined";
 import FilterListIcon from "@mui/icons-material/FilterList";
 import FileDownloadIcon from "@mui/icons-material/FileDownloadOutlined";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PendingIcon from "@mui/icons-material/PendingOutlined";
 import NorthIcon from "@mui/icons-material/North";
 import SouthIcon from "@mui/icons-material/South";
 import EastIcon from "@mui/icons-material/East";
-import { getObservations, getTasksForPatient, createResourceIfNoneExist, type FhirResource } from "./patientApi";
-import { buildAlertInput } from "../fhir/extract";
+import { getObservations, getTasksForPatient, getEncounters, createResourceIfNoneExist, type FhirResource } from "./patientApi";
+import { buildAlertInput, buildHospitalizationSignal } from "../fhir/extract";
 import { evaluateAlerts, type GdmtAlert, type AlertSeverity } from "../engine/alerts";
-import { resolveCitation } from "../engine/citations";
-import { computeRiskScore, type RiskBand } from "../engine/risk";
+import { computeRiskScore, RISK_SCORING, type HospitalizationSignal } from "../engine/risk";
 import { buildDetectedIssue, buildFlagForAlert, buildTaskForAlert, alertKey, ALERT_IDENTIFIER_SYSTEM } from "../fhir/writeback";
 import { CURRENT_USER } from "./currentUser";
+import { RISK_COLOR } from "./riskColors";
+import CitationLine from "./CitationLine";
+import { Bars, Line } from "./sparkline";
+import { fmtDate, fmtTime, round1 } from "./format";
 
 /**
  * Vitals page — remote-monitoring view for a patient's home-device readings.
@@ -92,9 +96,6 @@ function hasCode(o: Obs, set: readonly string[]): boolean {
 function obsDate(o: Obs): string | undefined {
   return o.effectiveDateTime ?? o.issued;
 }
-function round1(n: number): number {
-  return Math.round(n * 10) / 10;
-}
 function seriesFor(obs: Obs[], set: readonly string[]): Reading[] {
   return obs
     .filter((o) => hasCode(o, set) && !hasCode(o, [BP_PANEL]))
@@ -104,17 +105,6 @@ function seriesFor(obs: Obs[], set: readonly string[]): Reading[] {
 }
 function compOf(o: Obs, set: readonly string[]): Component | undefined {
   return (o.component ?? []).find((c) => (c.code?.coding ?? []).some((x) => x.code && set.includes(x.code)));
-}
-
-function fmtDate(iso?: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-function fmtTime(iso?: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 // ---- Status / classification ------------------------------------------------
@@ -142,44 +132,6 @@ function sysStatus(v: number): Status {
 }
 function diaStatus(v: number): Status {
   return v >= 90 ? "HIGH" : v >= 80 ? "ELEVATED" : "NORMAL";
-}
-
-// ---- Mini charts ------------------------------------------------------------
-
-function Bars({ series, color }: { series: number[]; color: string }) {
-  if (series.length === 0) return null;
-  const min = Math.min(...series);
-  const max = Math.max(...series);
-  const span = max - min || 1;
-  return (
-    <Box sx={{ display: "flex", alignItems: "flex-end", gap: 0.5, height: 64, mt: 1 }}>
-      {series.map((v, i) => {
-        const h = 18 + ((v - min) / span) * 42; // 18–60px
-        const recent = i >= series.length - Math.ceil(series.length / 2);
-        return <Box key={i} sx={{ flex: 1, height: h, borderRadius: 0.75, bgcolor: recent ? color : `${color}40` }} />;
-      })}
-    </Box>
-  );
-}
-
-function Line({ series, color }: { series: number[]; color: string }) {
-  if (series.length === 0) return null;
-  const w = 240;
-  const h = 64;
-  const pad = 4;
-  const min = Math.min(...series);
-  const max = Math.max(...series);
-  const span = max - min || 1;
-  const step = series.length > 1 ? (w - pad * 2) / (series.length - 1) : 0;
-  const pts = series.map((v, i) => `${round1(pad + i * step)},${round1(pad + (h - pad * 2) * (1 - (v - min) / span))}`);
-  return (
-    <Box sx={{ mt: 1, height: 64 }}>
-      <svg width="100%" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: "block" }}>
-        <polyline points={`${pad},${h - pad} ${pts.join(" ")} ${w - pad},${h - pad}`} fill={`${color}1a`} stroke="none" />
-        <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth={2} />
-      </svg>
-    </Box>
-  );
 }
 
 // ---- Trend card -------------------------------------------------------------
@@ -253,6 +205,8 @@ export default function VitalsTab({ patientId: pid }: { patientId?: string } = {
   const [acked, setAcked] = useState<Record<string, string>>({});
   /** alertKeys that already have a Task on the server (so we don't create duplicates). */
   const [existingAlertKeys, setExistingAlertKeys] = useState<Set<string>>(new Set());
+  /** Most recent HF inpatient stay, if any — a non-vital driver of the risk score. */
+  const [hospitalization, setHospitalization] = useState<HospitalizationSignal | undefined>(undefined);
   const [historyFilter, setHistoryFilter] = useState<VitalKey | "all">("all");
   const [filterAnchor, setFilterAnchor] = useState<null | HTMLElement>(null);
 
@@ -261,11 +215,16 @@ export default function VitalsTab({ patientId: pid }: { patientId?: string } = {
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([getObservations(patientId), getTasksForPatient(patientId).catch(() => [])])
-      .then(([obs, tasks]) => {
+    Promise.all([
+      getObservations(patientId),
+      getTasksForPatient(patientId).catch(() => []),
+      getEncounters(patientId).catch(() => [] as FhirResource[]),
+    ])
+      .then(([obs, tasks, encounters]) => {
         const typed = obs as unknown as Obs[];
         setObservations(typed);
         setAlerts(evaluateAlerts(buildAlertInput({ patientId, observations: obs })));
+        setHospitalization(buildHospitalizationSignal({ encounters }));
         // Which alerts already have a Task? (identifier value "<key>:task")
         const keys = new Set<string>();
         for (const t of tasks) {
@@ -407,7 +366,7 @@ export default function VitalsTab({ patientId: pid }: { patientId?: string } = {
   }
   if (error) return <Alert severity="error">{error}</Alert>;
 
-  const risk = computeRiskScore(alerts);
+  const risk = computeRiskScore(alerts, { hospitalization });
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -607,16 +566,9 @@ function PipelinePanel() {
   );
 }
 
-const RISK_COLOR: Record<RiskBand, { fg: string; bg: string }> = {
-  Critical: { fg: "#b91c1c", bg: "#fee2e2" },
-  High: { fg: "#c2410c", bg: "#ffedd5" },
-  Moderate: { fg: "#b45309", bg: "#fef3c7" },
-  Low: { fg: "#0369a1", bg: "#e0f2fe" },
-  Stable: { fg: "#15803d", bg: "#dcfce7" },
-};
-
 function RiskPanel({ risk }: { risk: ReturnType<typeof computeRiskScore> }) {
   const c = RISK_COLOR[risk.band];
+  const citedRef = risk.contributors.find((x) => x.citationRef)?.citationRef;
   return (
     <Paper variant="outlined" sx={{ borderRadius: 2, p: 2, display: "flex", alignItems: "center", gap: 2.5, borderColor: c.fg, borderWidth: risk.band === "Critical" || risk.band === "High" ? 2 : 1 }}>
       <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: c.bg, color: c.fg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -627,14 +579,62 @@ function RiskPanel({ risk }: { risk: ReturnType<typeof computeRiskScore> }) {
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Typography variant="overline" sx={{ fontWeight: 700, color: "text.secondary" }}>HF Risk Score</Typography>
           <Chip size="small" label={risk.band} sx={{ bgcolor: c.bg, color: c.fg, fontWeight: 800 }} />
+          <Tooltip title={<RiskInfoContent />} arrow>
+            <InfoOutlinedIcon sx={{ fontSize: 16, color: "text.disabled", cursor: "help" }} />
+          </Tooltip>
         </Box>
         <Typography variant="body2" color="text.secondary">
-          {risk.contributors.length === 0
-            ? "No active alerts — vitals within guideline-cited thresholds."
-            : `Driven by: ${risk.contributors.map((x) => `${x.title} (+${x.points})`).join(", ")}`}
+          How concerning this patient's home vitals are right now (0–100; higher is worse).
         </Typography>
+
+        {/* This patient's calculation — the exact contributors that sum to the score. */}
+        {risk.contributors.length === 0 ? (
+          <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600, color: c.fg }}>
+            No active alerts → Stable (0).
+          </Typography>
+        ) : (
+          <Box sx={{ mt: 0.5, display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>Driven by:</Typography>
+            {risk.contributors.map((x, i) => (
+              <Chip key={`${x.title}-${i}`} size="small" variant="outlined" label={`${x.title} +${x.points}`} sx={{ fontWeight: 600 }} />
+            ))}
+            <Typography variant="body2" color="text.secondary">= {risk.score} (capped at 100)</Typography>
+          </Box>
+        )}
+        {citedRef && <CitationLine citationRef={citedRef} />}
       </Box>
     </Paper>
+  );
+}
+
+/** Hover explanation for the risk score: what it is, the signals considered, and the formula. */
+function RiskInfoContent() {
+  const s = RISK_SCORING;
+  return (
+    <Box sx={{ p: 0.5, maxWidth: 320 }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>What this is</Typography>
+      <Typography variant="caption" sx={{ display: "block", opacity: 0.9 }}>
+        A single 0–100 measure of how concerning this patient's home vitals are right now — used to triage
+        the cohort sickest-first. Higher is worse.
+      </Typography>
+
+      <Divider sx={{ my: 0.75, borderColor: "rgba(255,255,255,0.25)" }} />
+
+      <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>Factors considered</Typography>
+      <Typography variant="caption" sx={{ display: "block", opacity: 0.9 }}>{s.factors.join(" · ")}</Typography>
+
+      <Divider sx={{ my: 0.75, borderColor: "rgba(255,255,255,0.25)" }} />
+
+      <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>How it's calculated</Typography>
+      <Typography variant="caption" sx={{ display: "block", opacity: 0.9 }}>
+        Severity-weighted sum, capped at 100. Each alert adds High +{s.severityPoints.high} ·
+        Moderate +{s.severityPoints.moderate} · Low +{s.severityPoints.low}; a recent HF hospitalization adds
+        +{s.hospVulnerablePoints} (≤{s.hospVulnerableDays}d) or +{s.hospRecentPoints} (≤{s.hospRecentDays}d).
+      </Typography>
+      <Typography variant="caption" sx={{ display: "block", opacity: 0.9, mt: 0.5 }}>
+        Bands: {s.bands.map((b) => `${b.band} ${b.range}`).join(" · ")}.
+      </Typography>
+    </Box>
   );
 }
 
@@ -688,25 +688,6 @@ function AlertBanner({
         {busy ? "Creating…" : acked ? "FHIR Task created" : "Accept + Create FHIR Task"}
       </Button>
     </Paper>
-  );
-}
-
-/** Renders the alert's guideline source as a deep link to the exact document section. */
-function CitationLine({ citationRef }: { citationRef: string }) {
-  const c = resolveCitation(citationRef);
-  const text = c.section ? `${c.source} — ${c.section}` : c.source;
-  return (
-    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
-      Source:{" "}
-      {c.url ? (
-        <Link href={c.url} target="_blank" rel="noopener noreferrer" sx={{ fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 0.25 }}>
-          {text}
-          <OpenInNewIcon sx={{ fontSize: 12 }} />
-        </Link>
-      ) : (
-        text
-      )}
-    </Typography>
   );
 }
 

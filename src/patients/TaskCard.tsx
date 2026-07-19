@@ -6,6 +6,8 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { saveTask, type FhirResource } from "./patientApi";
 import { CURRENT_USER } from "./currentUser";
 import VitalTrendDetail from "./VitalTrendDetail";
+import CitationLine from "./CitationLine";
+import { isKnownCitation, VITAL_CITATION_REF } from "../engine/citations";
 
 /**
  * One Task, with the full clinician workflow and a lazy expandable trend panel for the
@@ -39,6 +41,22 @@ function taskNote(t: FhirResource): string | undefined {
   // The original alert note has no author; the action note carries authorString.
   const notes = (t.note as Array<{ text?: string; authorString?: string }> | undefined) ?? [];
   return notes.find((n) => !n.authorString)?.text;
+}
+/** The note with any trailing "(Source: …)" stripped — the source is rendered as a link instead. */
+function noteWithoutSource(note: string | undefined): string | undefined {
+  return note ? note.replace(/\s*\(Source:[^)]*\)\s*/g, " ").trim() || undefined : note;
+}
+/**
+ * Best citation ref for a Task's source link: a known citation id embedded in the note
+ * ("(Source: <id>)", used by GDMT-gap and app-created alert Tasks), else the ref for the
+ * alert's vital (covers seeded Tasks whose note only says a generic source).
+ */
+function citationRefOf(t: FhirResource): string | undefined {
+  const m = /\(Source:\s*([^)]+)\)/.exec(taskNote(t) ?? "");
+  const raw = m?.[1]?.trim();
+  if (raw && isKnownCitation(raw)) return raw;
+  const vital = alertVitalOf(t);
+  return vital ? VITAL_CITATION_REF[vital] : undefined;
 }
 function actionNoteOf(t: FhirResource): string {
   const notes = (t.note as Array<{ text?: string; authorString?: string }> | undefined) ?? [];
@@ -81,6 +99,7 @@ export default function TaskCard({
   const owner = (task.owner as { display?: string } | undefined)?.display;
   const reason = (task.statusReason as { text?: string } | undefined)?.text;
   const vital = alertVitalOf(task);
+  const citationRef = citationRefOf(task);
 
   const [busy, setBusy] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -124,9 +143,10 @@ export default function TaskCard({
           <AssignmentIcon fontSize="small" sx={{ color: "text.secondary", mt: 0.4 }} />
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{taskTitle(task)}</Typography>
-            {taskNote(task) && (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{taskNote(task)}</Typography>
+            {noteWithoutSource(taskNote(task)) && (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{noteWithoutSource(taskNote(task))}</Typography>
             )}
+            {citationRef && <CitationLine citationRef={citationRef} />}
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mt: 0.75, flexWrap: "wrap" }}>
               {owner && (
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, color: "text.secondary" }}>

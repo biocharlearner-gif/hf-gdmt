@@ -100,6 +100,12 @@ export const THRESHOLDS = {
   lvefRecencyDays: 365,
   // dose-adequacy: >= this fraction of target counts as ON_TARGET
   onTargetFraction: 0.9,
+  // Up-titrate a sub-target pillar if it has sat below target longer than this (days).
+  titrationIntervalDays: 14,
+  // Post-HF-hospitalization "vulnerable phase": highest risk of readmission (days
+  // since discharge). Beyond hfHospRecentDays the admission stops driving current risk.
+  hfHospVulnerableDays: 30,
+  hfHospRecentDays: 90,
 } as const;
 
 /**

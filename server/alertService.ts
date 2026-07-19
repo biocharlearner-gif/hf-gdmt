@@ -10,12 +10,11 @@
  * The engine only detects & cites; the Task it writes is a care-team review item, not
  * an order — so automated writeback stays within the "never auto-prescribe" rule.
  *
- * Run:  npm run alert-service                 (defaults to hapi.fhir.org/baseR4)
- *       FHIR_READ_BASE=… FHIR_WRITE_BASE=… PORT=8787 npm run alert-service
+ * This module holds the PURE, transport-agnostic core (patientIdFromNotification,
+ * processNotification) plus a factory for the network-backed FHIR deps. The HTTP
+ * server that exposes `/notify` lives in server/index.ts (Bun.serve), so this file
+ * stays free of any web-framework/runtime coupling and remains unit-testable.
  */
-import { createServer, type IncomingMessage } from "node:http";
-import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
 import { buildAlertInput } from "../src/fhir/extract";
 import { evaluateAlerts, type GdmtAlert } from "../src/engine/alerts";
 import { buildDetectedIssue, buildFlagForAlert, buildTaskForAlert } from "../src/fhir/writeback";
@@ -92,82 +91,75 @@ export async function processNotification(body: unknown, deps: AlertServiceDeps)
   return { patientId, alerts, created };
 }
 
-// ---- HTTP server (only runs when executed directly) -------------------------
+// ---- Network-backed FHIR deps (consumed by the Bun server, server/index.ts) --
 
-const READ_BASE = (process.env.FHIR_READ_BASE || "https://hapi.fhir.org/baseR4").replace(/\/$/, "");
-const WRITE_BASE = (process.env.FHIR_WRITE_BASE || READ_BASE).replace(/\/$/, "");
-const PORT = Number(process.env.PORT || 8787);
-
-const httpDeps: AlertServiceDeps = {
-  readObservations: async (patientId) => {
-    const res = await fetch(`${READ_BASE}/Observation?patient=${patientId}&_count=200&_sort=-date`, {
-      headers: { Accept: "application/fhir+json" },
-    });
-    if (!res.ok) throw new Error(`read Observations → ${res.status}`);
-    return res.json();
-  },
-  createResource: async (resource) => {
-    const res = await fetch(`${WRITE_BASE}/${resource.resourceType}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/fhir+json", Accept: "application/fhir+json" },
-      body: JSON.stringify(resource),
-    });
-    if (!res.ok) throw new Error(`create ${resource.resourceType} → ${res.status}`);
-    return res.json() as Promise<{ id?: string }>;
-  },
-};
-
-function readBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve) => {
-    let data = "";
-    req.on("data", (c) => (data += c));
-    req.on("end", () => {
-      try {
-        resolve(data ? JSON.parse(data) : {});
-      } catch {
-        resolve({});
-      }
-    });
-  });
+/**
+ * Build the `identifier=system|value` search token for a resource that carries a
+ * stable first identifier (the alert builders stamp one, e.g.
+ * `urn:hf-gdmt:alert|<patient>:<rule>:<date>:task`). Returns null when the resource
+ * has no identifier — such a resource is always created unconditionally. Pure/exported
+ * for tests.
+ */
+export function identifierSearchToken(resource: Json): string | null {
+  const ids = resource.identifier as { system?: string; value?: string }[] | undefined;
+  const first = ids?.[0];
+  if (!first?.value) return null;
+  return first.system ? `${first.system}|${first.value}` : first.value;
 }
 
-function startServer() {
-  const server = createServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
-    if (req.method === "GET" && url.pathname === "/health") {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ok: true, readBase: READ_BASE, writeBase: WRITE_BASE }));
-      return;
-    }
-    if (req.method === "POST" && url.pathname === "/notify") {
-      try {
-        let body = await readBody(req);
-        // Allow ?patient=<id> as a fallback when the server sends an empty ping.
-        const pidParam = url.searchParams.get("patient");
-        if (pidParam && (!body || typeof body !== "object" || !Object.keys(body as object).length)) {
-          body = { patientId: pidParam };
+export interface FhirDepsConfig {
+  /** FHIR base URL to read Observations from. */
+  readBase: string;
+  /** FHIR base URL to write artifacts to (defaults to readBase). */
+  writeBase?: string;
+  /**
+   * Bearer token for the tenant FHIR server (e.g. the Medblocks token). Held only
+   * server-side and attached here — it must never reach the browser bundle.
+   */
+  token?: string;
+}
+
+/**
+ * Build the real (network) `AlertServiceDeps` for a given FHIR base, optionally
+ * authenticated. Kept here next to the pure core so all FHIR I/O for the alert loop
+ * lives in one module; the Bun server wires this into the `/notify` route.
+ */
+export function createFhirDeps(config: FhirDepsConfig): AlertServiceDeps {
+  const readBase = config.readBase.replace(/\/$/, "");
+  const writeBase = (config.writeBase || config.readBase).replace(/\/$/, "");
+  const authHeader = config.token ? { Authorization: `Bearer ${config.token}` } : {};
+  return {
+    readObservations: async (patientId) => {
+      const res = await fetch(`${readBase}/Observation?patient=${patientId}&_count=200&_sort=-date`, {
+        headers: { Accept: "application/fhir+json", ...authHeader },
+      });
+      if (!res.ok) throw new Error(`read Observations → ${res.status}`);
+      return res.json();
+    },
+    // Idempotent create: the alert builders carry a stable identifier, so a repeated
+    // Subscription notification for the same alert must not spawn duplicate artifacts.
+    // Search-then-create (not the If-None-Exist header) mirrors the SPA's approach and
+    // avoids the header being stripped by some servers/CORS.
+    createResource: async (resource) => {
+      const token = identifierSearchToken(resource);
+      if (token) {
+        const search = await fetch(
+          `${writeBase}/${resource.resourceType}?identifier=${encodeURIComponent(token)}`,
+          { headers: { Accept: "application/fhir+json", ...authHeader } },
+        );
+        if (search.ok) {
+          const bundle = (await search.json()) as { entry?: { resource?: { id?: string } }[] };
+          const existing = bundle.entry?.[0]?.resource;
+          if (existing?.id) return { id: existing.id };
         }
-        const result = await processNotification(body, httpDeps);
-        console.log(`[notify] patient=${result.patientId} alerts=${result.alerts.length} written=${result.created.length}`);
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify(result));
-      } catch (e) {
-        console.error("[notify] error", e);
-        res.writeHead(500, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: e instanceof Error ? e.message : "error" }));
       }
-      return;
-    }
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "not found" }));
-  });
-  server.listen(PORT, () => {
-    console.log(`HF alert service on http://localhost:${PORT}`);
-    console.log(`  read=${READ_BASE} write=${WRITE_BASE}`);
-    console.log(`  POST /notify  (Subscription rest-hook target)  ·  GET /health`);
-  });
+      const res = await fetch(`${writeBase}/${resource.resourceType}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json", Accept: "application/fhir+json", ...authHeader },
+        body: JSON.stringify(resource),
+      });
+      if (!res.ok) throw new Error(`create ${resource.resourceType} → ${res.status}`);
+      return res.json() as Promise<{ id?: string }>;
+    },
+  };
 }
-
-// Run the server only when this file is the entry point (not when imported by tests).
-const invokedDirectly = Boolean(process.argv[1]) && resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1]!);
-if (invokedDirectly) startServer();

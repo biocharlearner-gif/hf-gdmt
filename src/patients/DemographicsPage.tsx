@@ -1,37 +1,17 @@
-import { type ReactNode } from "react";
 import { useOutletContext } from "react-router-dom";
-import { Box, Chip, IconButton, Paper, Typography } from "@mui/material";
+import { Box, Chip, IconButton, Typography } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import MapIcon from "@mui/icons-material/MapOutlined";
 import PhoneIcon from "@mui/icons-material/PhoneOutlined";
 import EmailIcon from "@mui/icons-material/EmailOutlined";
 import { mrnOf, formatDob, type FhirPatient } from "./patientMapper";
+import { Card } from "./ui";
 import type { PatientOutletContext } from "./PatientViewPage";
 
-/** White card with a titled header (bottom border) + optional header action. */
-function Card({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <Paper variant="outlined" sx={{ borderRadius: 2 }}>
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          px: 2.5,
-          py: 1.75,
-          borderBottom: "1px solid",
-          borderColor: "divider",
-        }}
-      >
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
-          {title}
-        </Typography>
-        {action}
-      </Box>
-      <Box sx={{ p: 2.5 }}>{children}</Box>
-    </Paper>
-  );
-}
+/**
+ * Demographics — patient identity, address and contact only. The problem list,
+ * medications and labs live on the Clinical tab, which is the chart-review surface.
+ */
 
 function Field({ label, value, full }: { label: string; value?: string; full?: boolean }) {
   return (

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { patientSchema, parseDob, ageInYears } from "./patientSchema";
-import { formToPatient, patientToForm, mrnOf, fullName, dobToIso, isoToDob } from "./patientMapper";
+import { formToPatient, formToCondition, patientToForm, mrnOf, fullName, dobToIso, isoToDob } from "./patientMapper";
+import { DEMO_TAG } from "./fhirConfig";
+import { problemByValue } from "./problemList";
 
 const valid = {
   firstName: "Robert",
@@ -79,6 +81,10 @@ describe("mapper round-trip", () => {
     expect(mrnOf(p)).toBe("MRN-12345");
     expect(fullName(p)).toBe("Robert James Mendez");
   });
+  it("stamps the demo-cohort tag so the patient shows on the roster", () => {
+    const p = formToPatient(valid);
+    expect(p.meta?.tag?.[0]).toMatchObject({ system: DEMO_TAG.system, code: DEMO_TAG.code });
+  });
   it("round-trips through patientToForm", () => {
     const p = formToPatient(
       { ...valid, middleName: "James", phone: "1234567890", email: "a@b.co", city: "Boston" },
@@ -89,5 +95,32 @@ describe("mapper round-trip", () => {
     expect(back.dob).toBe("01-15-1980");
     expect(back.phone).toBe("1234567890");
     expect(back.city).toBe("Boston");
+  });
+});
+
+describe("formToCondition (problem list)", () => {
+  it("returns null when no diagnosis concept was chosen", () => {
+    expect(formToCondition(null, "p1")).toBeNull();
+    expect(formToCondition(undefined, "p1")).toBeNull();
+  });
+
+  it("builds an active + confirmed problem-list Condition coded from the concept", () => {
+    const concept = problemByValue("hf-hfref")!.coding;
+    const c = formToCondition(concept, "p1") as Record<string, any>;
+    expect(c.resourceType).toBe("Condition");
+    expect(c.subject.reference).toBe("Patient/p1");
+    expect(c.clinicalStatus.coding[0].code).toBe("active");
+    expect(c.verificationStatus.coding[0].code).toBe("confirmed");
+    expect(c.category[0].coding[0].code).toBe("problem-list-item");
+    expect(c.code.coding[0]).toMatchObject({ system: concept.system, code: concept.code, display: concept.display });
+    expect(c.meta.tag[0]).toMatchObject({ system: DEMO_TAG.system, code: DEMO_TAG.code });
+  });
+
+  it("keeps HF suggestion codes distinct from Non-HF ones", () => {
+    const hf = problemByValue("hf-systolic")!;
+    const nonHf = problemByValue("nonhf-htn")!;
+    expect(hf.cohort).toBe("hf");
+    expect(nonHf.cohort).toBe("non-hf");
+    expect(nonHf.coding.code).not.toBe(hf.coding.code);
   });
 });

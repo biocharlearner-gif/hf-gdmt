@@ -22,8 +22,9 @@ import AssignmentIcon from "@mui/icons-material/AssignmentOutlined";
 import { fetchTaggedPatients, getObservations, getTasksForPatient, type FhirResource } from "./patientApi";
 import { fullName, mrnOf, initialsOf, avatarColors, type FhirPatient } from "./patientMapper";
 import { buildAlertInput } from "../fhir/extract";
-import { evaluateAlerts } from "../engine/alerts";
-import { computeRiskScore, type RiskScore, type RiskBand } from "../engine/risk";
+import { evaluateAlerts, evaluateOutcomeAlerts } from "../engine/alerts";
+import { computeRiskScore, type RiskScore } from "../engine/risk";
+import { RISK_COLOR } from "./riskColors";
 import TaskCard from "./TaskCard";
 
 /**
@@ -39,15 +40,9 @@ interface TaskGroup {
   patient: FhirPatient;
   tasks: FhirResource[];
   risk: RiskScore;
+  /** Vitals still abnormal on the LATEST reading (recency-independent) — for the outcome chip. */
+  outcomeVitals: Set<string>;
 }
-
-const RISK_COLOR: Record<RiskBand, { fg: string; bg: string }> = {
-  Critical: { fg: "#b91c1c", bg: "#fee2e2" },
-  High: { fg: "#c2410c", bg: "#ffedd5" },
-  Moderate: { fg: "#b45309", bg: "#fef3c7" },
-  Low: { fg: "#0369a1", bg: "#e0f2fe" },
-  Stable: { fg: "#15803d", bg: "#dcfce7" },
-};
 
 /** Sort sickest-first, then alphabetically. */
 function byRiskThenName(a: TaskGroup, b: TaskGroup): number {
@@ -91,8 +86,12 @@ export default function TasksPage() {
         // Compute the patient's current HF risk to rank the list (sickest first).
         const obs = patient.id ? await getObservations(patient.id).catch(() => []) : [];
         if (!alive()) return;
-        const risk = computeRiskScore(evaluateAlerts(buildAlertInput({ patientId: patient.id ?? "", observations: obs })));
-        const group: TaskGroup = { patient, tasks, risk };
+        const alertInput = buildAlertInput({ patientId: patient.id ?? "", observations: obs });
+        const risk = computeRiskScore(evaluateAlerts(alertInput));
+        // Outcome uses the latest reading (not wall-clock recency) so "improved" can't
+        // be claimed while the last value is still abnormal.
+        const outcomeVitals = new Set(evaluateOutcomeAlerts(alertInput).map((a) => a.vital));
+        const group: TaskGroup = { patient, tasks, risk, outcomeVitals };
         setGroups((prev) =>
           prev.some((g) => g.patient.id === patient.id)
             ? prev // already added — never duplicate a patient
@@ -139,13 +138,10 @@ export default function TasksPage() {
     [filteredGroups, selectedId],
   );
 
-  // Outcome loop: the vitals CURRENTLY alerting for the selected patient (from the risk
-  // re-evaluation done at load). Each alert-task uses this to show whether its vital has
-  // since improved. null only when nothing is selected.
-  const activeAlertVitals = useMemo(
-    () => (selected ? new Set(selected.risk.contributors.map((c) => c.vital)) : null),
-    [selected],
-  );
+  // Outcome loop: the vitals still abnormal on the selected patient's LATEST reading.
+  // Each alert-task uses this to show whether its vital has since improved. null only
+  // when nothing is selected.
+  const activeAlertVitals = useMemo(() => (selected ? selected.outcomeVitals : null), [selected]);
 
   /** Patch a task in place after TaskCard mutates it (status / notes). */
   const onTaskChanged = (updated: FhirResource) =>

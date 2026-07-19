@@ -198,6 +198,29 @@ function spo2DeclineTrendAlert(series: VitalReading[], now: string): GdmtAlert |
   };
 }
 
+/** The most recent reading date across all vitals in the input, if any. */
+function latestReadingDate(input: AlertInput): string | undefined {
+  const dates: string[] = [];
+  for (const r of input.weightSeriesKg ?? []) dates.push(r.date);
+  for (const r of input.spo2SeriesPct ?? []) dates.push(r.date);
+  if (input.systolicBp?.date) dates.push(input.systolicBp.date);
+  if (input.heartRate?.date) dates.push(input.heartRate.date);
+  if (input.spo2?.date) dates.push(input.spo2.date);
+  return dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : undefined;
+}
+
+/**
+ * Evaluate alerts for the **alert→outcome loop**, i.e. "is the vital still abnormal
+ * based on the LATEST reading?". Anchors `now` to the most recent reading so a device
+ * that simply stopped reporting doesn't read as "improved" — the outcome reflects the
+ * actual last value, not wall-clock staleness. (Distinct from `evaluateAlerts`, which
+ * is recency-gated so a stale device never raises a *new* live alert.)
+ */
+export function evaluateOutcomeAlerts(input: AlertInput): GdmtAlert[] {
+  const anchor = latestReadingDate(input);
+  return evaluateAlerts(anchor ? { ...input, now: anchor } : input);
+}
+
 /**
  * Evaluate HF remote-monitoring alerts. Returns highest-concern alerts; an empty
  * array means nothing fired (NOT an error). The caller decides how to surface them
