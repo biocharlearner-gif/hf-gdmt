@@ -287,6 +287,17 @@ const MEDS = {
   ],
 };
 
+/**
+ * Recent HF inpatient stays → the vulnerable post-discharge phase feeds the risk score.
+ *   HF-001 → discharged 12d ago  → "vulnerable phase" (+40, within 30d)
+ *   HF-005 → discharged 60d ago  → "recent"          (+18, within 90d)
+ * dischargeDaysAgo = days since Encounter.period.end; stay length is 4 days.
+ */
+const HOSPITALIZATIONS = {
+  "HF-001": { dischargeDaysAgo: 12, reason: "Acute decompensated heart failure" },
+  "HF-005": { dischargeDaysAgo: 60, reason: "Heart failure exacerbation" },
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.now();
 /** ISO date `d` days before the seed run (so seeded readings are fresh). */
@@ -530,6 +541,24 @@ function medEntries(p, i) {
   });
 }
 
+/** HF-related inpatient Encounter (IMP + HF reasonCode) → feeds the risk hospitalization signal. */
+function encounterEntries(p, i) {
+  const h = HOSPITALIZATIONS[p.mrn];
+  if (!h) return [];
+  const encId = `enc-${p.mrn}-hf`;
+  const resource = tagged({
+    resourceType: "Encounter",
+    identifier: [{ system: "urn:hf-gdmt:enc", value: encId }],
+    status: "finished",
+    class: { system: "http://terminology.hl7.org/CodeSystem/v3-ActCode", code: "IMP", display: "inpatient encounter" },
+    type: [{ coding: [{ system: SNOMED, code: "32485007", display: "Hospital admission" }], text: "Inpatient admission" }],
+    reasonCode: [{ coding: [{ system: SNOMED, code: "42343007", display: "Congestive heart failure" }], text: h.reason }],
+    subject: { reference: `urn:uuid:patient-${i}` },
+    period: { start: daysAgo(h.dischargeDaysAgo + 4), end: daysAgo(h.dischargeDaysAgo) },
+  });
+  return [{ fullUrl: `urn:uuid:${encId}`, resource, request: { method: "POST", url: "Encounter", ifNoneExist: `identifier=urn:hf-gdmt:enc|${encId}` } }];
+}
+
 function buildBundle() {
   const entry = [];
   PEOPLE.forEach((p, i) => {
@@ -541,6 +570,7 @@ function buildBundle() {
     entry.push(...vitalEntries(p, i));
     entry.push(...labEntries(p, i));
     entry.push(...medEntries(p, i));
+    entry.push(...encounterEntries(p, i));
     const task = taskEntry(p, i);
     if (task) entry.push(task);
   });

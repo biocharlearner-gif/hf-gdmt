@@ -31,10 +31,10 @@ import PendingIcon from "@mui/icons-material/PendingOutlined";
 import NorthIcon from "@mui/icons-material/North";
 import SouthIcon from "@mui/icons-material/South";
 import EastIcon from "@mui/icons-material/East";
-import { getObservations, getTasksForPatient, createResourceIfNoneExist, type FhirResource } from "./patientApi";
-import { buildAlertInput } from "../fhir/extract";
+import { getObservations, getTasksForPatient, getEncounters, createResourceIfNoneExist, type FhirResource } from "./patientApi";
+import { buildAlertInput, buildHospitalizationSignal } from "../fhir/extract";
 import { evaluateAlerts, type GdmtAlert, type AlertSeverity } from "../engine/alerts";
-import { computeRiskScore } from "../engine/risk";
+import { computeRiskScore, type HospitalizationSignal } from "../engine/risk";
 import { buildDetectedIssue, buildFlagForAlert, buildTaskForAlert, alertKey, ALERT_IDENTIFIER_SYSTEM } from "../fhir/writeback";
 import { CURRENT_USER } from "./currentUser";
 import { RISK_COLOR } from "./riskColors";
@@ -202,6 +202,8 @@ export default function VitalsTab({ patientId: pid }: { patientId?: string } = {
   const [acked, setAcked] = useState<Record<string, string>>({});
   /** alertKeys that already have a Task on the server (so we don't create duplicates). */
   const [existingAlertKeys, setExistingAlertKeys] = useState<Set<string>>(new Set());
+  /** Most recent HF inpatient stay, if any — a non-vital driver of the risk score. */
+  const [hospitalization, setHospitalization] = useState<HospitalizationSignal | undefined>(undefined);
   const [historyFilter, setHistoryFilter] = useState<VitalKey | "all">("all");
   const [filterAnchor, setFilterAnchor] = useState<null | HTMLElement>(null);
 
@@ -210,11 +212,16 @@ export default function VitalsTab({ patientId: pid }: { patientId?: string } = {
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([getObservations(patientId), getTasksForPatient(patientId).catch(() => [])])
-      .then(([obs, tasks]) => {
+    Promise.all([
+      getObservations(patientId),
+      getTasksForPatient(patientId).catch(() => []),
+      getEncounters(patientId).catch(() => [] as FhirResource[]),
+    ])
+      .then(([obs, tasks, encounters]) => {
         const typed = obs as unknown as Obs[];
         setObservations(typed);
         setAlerts(evaluateAlerts(buildAlertInput({ patientId, observations: obs })));
+        setHospitalization(buildHospitalizationSignal({ encounters }));
         // Which alerts already have a Task? (identifier value "<key>:task")
         const keys = new Set<string>();
         for (const t of tasks) {
@@ -356,7 +363,7 @@ export default function VitalsTab({ patientId: pid }: { patientId?: string } = {
   }
   if (error) return <Alert severity="error">{error}</Alert>;
 
-  const risk = computeRiskScore(alerts);
+  const risk = computeRiskScore(alerts, { hospitalization });
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -558,6 +565,7 @@ function PipelinePanel() {
 
 function RiskPanel({ risk }: { risk: ReturnType<typeof computeRiskScore> }) {
   const c = RISK_COLOR[risk.band];
+  const citedRef = risk.contributors.find((x) => x.citationRef)?.citationRef;
   return (
     <Paper variant="outlined" sx={{ borderRadius: 2, p: 2, display: "flex", alignItems: "center", gap: 2.5, borderColor: c.fg, borderWidth: risk.band === "Critical" || risk.band === "High" ? 2 : 1 }}>
       <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: c.bg, color: c.fg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -574,6 +582,7 @@ function RiskPanel({ risk }: { risk: ReturnType<typeof computeRiskScore> }) {
             ? "No active alerts — vitals within guideline-cited thresholds."
             : `Driven by: ${risk.contributors.map((x) => `${x.title} (+${x.points})`).join(", ")}`}
         </Typography>
+        {citedRef && <CitationLine citationRef={citedRef} />}
       </Box>
     </Paper>
   );

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildEngineInput } from "./extract";
+import { buildEngineInput, buildHospitalizationSignal } from "./extract";
 import { evaluateGdmt } from "../engine/engine";
 
 const NOW = "2026-06-16T00:00:00.000Z";
@@ -111,6 +111,33 @@ describe("buildEngineInput — medication activity", () => {
     // Missing authoredOn leaves startedOn undefined (no start date to reason about).
     const noDate = inputWith([med("active")]);
     expect(noDate.medications[0]!.startedOn).toBeUndefined();
+  });
+});
+
+describe("buildHospitalizationSignal", () => {
+  const NOW2 = "2026-06-16T00:00:00.000Z";
+  const daysBefore = (n: number) => new Date(new Date(NOW2).getTime() - n * 86_400_000).toISOString();
+  const hfInpatient = (dischargeDaysAgo: number) => ({
+    resourceType: "Encounter",
+    status: "finished",
+    class: { code: "IMP" },
+    reasonCode: [{ coding: [{ system: "http://snomed.info/sct", code: "42343007", display: "Congestive heart failure" }] }],
+    period: { start: daysBefore(dischargeDaysAgo + 4), end: daysBefore(dischargeDaysAgo) },
+  });
+
+  it("returns the most recent HF inpatient stay with days since discharge", () => {
+    const s = buildHospitalizationSignal({ now: NOW2, encounters: [hfInpatient(40), hfInpatient(10)] });
+    expect(s?.daysSinceDischarge).toBe(10);
+  });
+
+  it("ignores non-HF and outpatient encounters", () => {
+    const outpatient = { resourceType: "Encounter", class: { code: "AMB" }, reasonCode: [{ text: "Heart failure" }], period: { end: daysBefore(5) } };
+    const nonHf = { resourceType: "Encounter", class: { code: "IMP" }, reasonCode: [{ coding: [{ code: "44054006", display: "Diabetes" }] }], period: { end: daysBefore(5) } };
+    expect(buildHospitalizationSignal({ now: NOW2, encounters: [outpatient, nonHf] })).toBeUndefined();
+  });
+
+  it("returns undefined when there are no encounters", () => {
+    expect(buildHospitalizationSignal({ now: NOW2, encounters: [] })).toBeUndefined();
   });
 });
 

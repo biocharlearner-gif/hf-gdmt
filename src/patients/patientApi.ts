@@ -214,6 +214,23 @@ export async function getMedications(patientId: string): Promise<FhirResource[]>
 }
 
 /**
+ * Fetch a patient's Encounters, newest first. Used to detect a recent HF-related inpatient
+ * stay (the vulnerable post-discharge phase) that feeds the deterministic risk score.
+ */
+export async function getEncounters(patientId: string): Promise<FhirResource[]> {
+  const params = new URLSearchParams();
+  params.set("patient", patientId);
+  params.set("_count", "50");
+  params.set("_sort", "-date");
+  const bundle = (await request(`Encounter?${params.toString()}`)) as {
+    entry?: Array<{ resource?: FhirResource }>;
+  };
+  return (bundle.entry ?? [])
+    .map((e) => e.resource)
+    .filter((r): r is FhirResource => r?.resourceType === "Encounter");
+}
+
+/**
  * Fetch all Conditions (problem list) for a patient. Unlike the cohort query this is
  * unfiltered — the profile shows the full problem list, not just HF diagnoses.
  */

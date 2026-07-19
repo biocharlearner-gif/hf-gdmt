@@ -436,4 +436,28 @@ sandbox), not just when code is written.
   resource's `authoredOn` — the two demo beta-blocker dates were set by a direct PUT through the BFF to
   realize the overdue/not-overdue contrast; the `authoredDaysAgo` values in `scripts/seed-hapi.mjs`
   (carvedilol 60, metoprolol 5) only apply on a fresh (empty-tenant) seed. Next: RAG cited-explanation module.
+- 2026-07-19: **GDMT journey stage banner + HF-hospitalization risk signal** (two features).
+  (1) **GDMT journey stage** — new pure `engine.gdmtStage(assessment)` classifies where a patient
+  sits on the optimization journey over the pillars applicable to their phenotype:
+  PHENOTYPE_PENDING / INITIATION / TITRATION / OPTIMIZED_LIMITED / OPTIMIZED, with at-target counts and
+  the most-recent medication change (min days-on-therapy). Surfaced as a **StageBanner** on the GDMT tab
+  (three-step rail — Initiation → Active titration → Optimized — with the current step highlighted, a
+  toned summary, and a next-step prompt); skipped for Unknown (phenotype banner already prompts echo).
+  `isApplicablePillar` moved into the engine and reused by the tab (removed the duplicate). This answers
+  "which stage is the patient in?" deterministically without any EHR visit-type data — chosen over a
+  generic Encounter/visit list, which would be an off-thesis EHR dump. 6 engine tests.
+  (2) **HF-hospitalization → risk score** — the vulnerable post-discharge phase now drives the HF risk
+  score. `buildHospitalizationSignal` (`fhir/extract.ts`) reads the most recent HF-related **inpatient**
+  Encounter (class IMP + HF reasonCode / ICD-10 I50) → `HospitalizationSignal{daysSinceDischarge}`;
+  `computeRiskScore(alerts, {hospitalization})` adds a cited contributor: +40 within
+  `hfHospVulnerableDays`=30 (vulnerable phase), +18 within `hfHospRecentDays`=90 (recent), 0 after
+  (thresholds in `codes.ts` VERIFY; citation `AHA-ACC-HFSA-2022-8-transitions`). `RiskContributor.vital`
+  is now optional (non-vital signal); RiskPanel shows the contributor + §8 deep-link. Threaded through
+  `getEncounters` (`patientApi.ts`) + `patientRisk.ts` so **both** the Vitals panel and the Patient List
+  risk column reflect it. Seed adds HF inpatient Encounters (`HOSPITALIZATIONS`: HF-001 discharged 12d →
+  vulnerable, HF-005 60d → recent). 7 tests (4 risk + 3 extract). 112 tests green, build clean.
+  Verified live against the Medblocks tenant (reseed created 2 Encounters): stage banners render
+  (Eleanor/Marcus = Active titration); risk shows HF-001 100/Critical incl. "vulnerable phase 12d (+40)",
+  HF-005 63/High incl. "recent 60d (+18)", Marcus no hosp contributor; list column + sort reflect it.
+  Next: RAG cited-explanation module.
 - _YYYY-MM-DD: what got done, what's next, any blockers._
