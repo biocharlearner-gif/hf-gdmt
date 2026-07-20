@@ -58,10 +58,14 @@ launch links point at the right host.
    self-contained `api/*.js` by `scripts/build-api.mjs` (a `prebuild` npm hook runs it on
    every `npm run build`; the generated `api/*.js` are committed so Vercel detects the
    functions). Never hand-author `.ts` files directly under `/api` that import shared code.
-2. **The `[...path]` catch-all injects a query param named `...path`.** A request to
-   `/api/fhir/Patient?_count=1` reaches the function with search `?_count=1&...path=Patient`.
-   `proxyFhir` deletes the `...path` param before forwarding (else HAPI 400s on the bogus
-   search parameter). `url.pathname` already carries the real path.
+2. **Filesystem `[...catch-all]` only matched a single path segment** for pre-built `.js`
+   functions — `/api/fhir/Patient` routed, but nested paths like `/api/fhir/Condition/_search`
+   (the roster's POST search) 404'd at the routing layer. Fixed with an explicit rewrite in
+   `vercel.json`: `/api/fhir/:path*` → `/api/fhir-proxy?__path=:path*` pointing at a single
+   `api/fhir-proxy.js`. `resolveUpstream` (server/fhirProxy.ts) reads the path from `__path`
+   (Vercel) or from `url.pathname` (Bun dev), and strips both `__path` and the legacy `...path`
+   catch-all param from the forwarded query. Single-segment dynamic routes (e.g.
+   `api/cds-services/[service].js`) are fine and still used.
 
 ## Post-deploy verification
 

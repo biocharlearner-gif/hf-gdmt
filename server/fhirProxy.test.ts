@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { proxyFhir } from "./fhirProxy";
+import { proxyFhir, resolveUpstream } from "./fhirProxy";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -31,6 +31,21 @@ describe("proxyFhir", () => {
     expect(targets[0]).toBe("https://fhir.example/r4/metadata");
   });
 
+  it("proxies a nested path (Condition/_search) from the Vercel `__path` rewrite param", async () => {
+    const targets = stubFetch();
+    // vercel.json rewrites /api/fhir/:path* -> /api/fhir-proxy?__path=:path*
+    const url = new URL("https://app.vercel.app/api/fhir-proxy?__path=Condition/_search&_count=2");
+    await proxyFhir(new Request(url.toString(), { method: "POST" }), url, { fhirBase: "https://fhir.example/r4" });
+    expect(targets[0]).toBe("https://fhir.example/r4/Condition/_search?_count=2");
+  });
+
+  it("proxies a nested path from pathname (Bun dev, no rewrite param)", async () => {
+    const targets = stubFetch();
+    const url = new URL("https://localhost:8787/api/fhir/Condition/_search?_count=2");
+    await proxyFhir(new Request(url.toString(), { method: "POST" }), url, { fhirBase: "https://fhir.example/r4" });
+    expect(targets[0]).toBe("https://fhir.example/r4/Condition/_search?_count=2");
+  });
+
   it("injects the Bearer token server-side when configured", async () => {
     const seen: RequestInit[] = [];
     vi.stubGlobal(
@@ -43,5 +58,20 @@ describe("proxyFhir", () => {
     const url = new URL("https://app.vercel.app/api/fhir/Patient");
     await proxyFhir(new Request(url.toString()), url, { fhirBase: "https://fhir.example/r4", token: "secret-xyz" });
     expect((seen[0]!.headers as Record<string, string>).Authorization).toBe("Bearer secret-xyz");
+  });
+});
+
+describe("resolveUpstream", () => {
+  it("prefers the `__path` rewrite param and strips it from the query", () => {
+    const u = new URL("https://x/api/fhir-proxy?__path=Patient/123&_summary=true");
+    expect(resolveUpstream(u)).toEqual({ path: "/Patient/123", query: "_summary=true" });
+  });
+  it("falls back to the pathname after /api/fhir", () => {
+    const u = new URL("https://x/api/fhir/Observation?patient=p1&_count=5");
+    expect(resolveUpstream(u)).toEqual({ path: "/Observation", query: "patient=p1&_count=5" });
+  });
+  it("strips the legacy `...path` catch-all param", () => {
+    const u = new URL("https://x/api/fhir/Patient?...path=Patient&name=a");
+    expect(resolveUpstream(u)).toEqual({ path: "/Patient", query: "name=a" });
   });
 });

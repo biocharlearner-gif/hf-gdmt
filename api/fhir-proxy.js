@@ -1,11 +1,21 @@
 // server/fhirProxy.ts
+function resolveUpstream(url) {
+  const params = new URLSearchParams(url.search);
+  let path = params.get("__path");
+  params.delete("__path");
+  params.delete("...path");
+  if (path == null) {
+    const marker = "/api/fhir";
+    const i = url.pathname.indexOf(marker);
+    path = i >= 0 ? url.pathname.slice(i + marker.length) : url.pathname;
+  }
+  path = "/" + path.replace(/^\/+/, "");
+  return { path, query: params.toString() };
+}
 async function proxyFhir(req, url, config) {
   const fhirBase = config.fhirBase.replace(/\/$/, "");
-  const upstreamPath = url.pathname.slice("/api/fhir".length);
-  const params = new URLSearchParams(url.search);
-  params.delete("...path");
-  const qs = params.toString();
-  const target = `${fhirBase}${upstreamPath}${qs ? `?${qs}` : ""}`;
+  const { path, query } = resolveUpstream(url);
+  const target = `${fhirBase}${path}${query ? `?${query}` : ""}`;
   const headers = {
     Accept: req.headers.get("accept") || "application/fhir+json"
   };

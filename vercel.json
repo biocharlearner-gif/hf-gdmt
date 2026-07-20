@@ -3,6 +3,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/api/fhir/:path*", "destination": "/api/fhir-proxy?__path=:path*" },
     { "source": "/cds-services", "destination": "/api/cds-services" },
     { "source": "/cds-services/:service", "destination": "/api/cds-services/:service" },
     { "source": "/notify", "destination": "/api/notify" },

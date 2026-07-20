@@ -12,7 +12,7 @@
 import { build } from "esbuild";
 
 const entries = [
-  { in: "api-src/fhir-proxy.ts", out: "api/fhir/[...path].js" },
+  { in: "api-src/fhir-proxy.ts", out: "api/fhir-proxy.js" },
   { in: "api-src/notify.ts", out: "api/notify.js" },
   { in: "api-src/health.ts", out: "api/health.js" },
   { in: "api-src/cds-discovery.ts", out: "api/cds-services.js" },
