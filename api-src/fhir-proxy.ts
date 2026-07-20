@@ -11,6 +11,14 @@ const TOKEN = process.env.MEDBLOCKS_TOKEN || undefined;
 
 export default {
   async fetch(req: Request): Promise<Response> {
+    // TEMP debug: reveal exactly what Vercel's [...path] catch-all passes in.
+    if (req.url.includes("__debug")) {
+      const u = new URL(req.url);
+      return new Response(
+        JSON.stringify({ rawUrl: req.url, pathname: u.pathname, search: u.search }, null, 2),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
     const url = new URL(req.url);
     return proxyFhir(req, url, { fhirBase: FHIR_BASE, token: TOKEN });
   },

@@ -27,6 +27,13 @@ var FHIR_BASE = (process.env.MEDBLOCKS_FHIR_BASE || "https://hapi.fhir.org/baseR
 var TOKEN = process.env.MEDBLOCKS_TOKEN || void 0;
 var fhir_proxy_default = {
   async fetch(req) {
+    if (req.url.includes("__debug")) {
+      const u = new URL(req.url);
+      return new Response(
+        JSON.stringify({ rawUrl: req.url, pathname: u.pathname, search: u.search }, null, 2),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
     const url = new URL(req.url);
     return proxyFhir(req, url, { fhirBase: FHIR_BASE, token: TOKEN });
   }
