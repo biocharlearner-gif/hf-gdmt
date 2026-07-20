@@ -41,13 +41,6 @@ var TOKEN = process.env.MEDBLOCKS_TOKEN || void 0;
 var fhir_proxy_default = {
   async fetch(req) {
     const url = new URL(req.url);
-    if (req.url.includes("__debug")) {
-      const r = resolveUpstream(url);
-      return new Response(
-        JSON.stringify({ rawUrl: req.url, pathname: url.pathname, search: url.search, resolved: r }, null, 2),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }
     return proxyFhir(req, url, { fhirBase: FHIR_BASE, token: TOKEN });
   }
 };
