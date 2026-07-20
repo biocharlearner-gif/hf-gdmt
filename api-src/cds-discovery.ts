@@ -1,9 +1,4 @@
-/**
- * Vercel serverless function: CDS Hooks discovery.
- * GET /cds-services (rewritten to /api/cds-services by vercel.json).
- *
- * Called cross-origin by EHR sandboxes, so CORS is emitted here.
- */
+/** Source for /api/cds-services — CDS Hooks discovery (GET). Bundled to api/cds-services.js. */
 import { discovery } from "../src/cds/service";
 
 const CORS: Record<string, string> = {

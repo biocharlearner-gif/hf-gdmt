@@ -1,12 +1,9 @@
 /**
- * Vercel serverless function: CDS Hooks patient-view card.
- * POST /cds-services/hf-gdmt-optimizer (rewritten to /api/cds-services/:service).
- *
- * Runs the SAME engine as the SPA (logic lives once) and returns a Card with the
- * GDMT gap summary + a SMART-launch link back into the app. Called cross-origin by
- * EHR sandboxes, so CORS is emitted here.
+ * Source for /api/cds-services/[service] — CDS Hooks patient-view card (POST).
+ * Bundled to api/cds-services/[service].js. Runs the SAME engine as the SPA and
+ * returns a Card with the GDMT gap summary + a SMART-launch link back into the app.
  */
-import { handlePatientView, SERVICE_ID, type CdsRequest } from "../../src/cds/service";
+import { handlePatientView, SERVICE_ID, type CdsRequest } from "../src/cds/service";
 
 const SMART_APP_URL = process.env.SMART_APP_URL || "http://localhost:5173";
 

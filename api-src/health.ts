@@ -1,7 +1,4 @@
-/**
- * Vercel serverless function: liveness + config echo (no secret leaked).
- * Rewritten from /health by vercel.json.
- */
+/** Source for /api/health — liveness + config echo (no secret leaked). */
 const FHIR_BASE = (process.env.MEDBLOCKS_FHIR_BASE || "https://hapi.fhir.org/baseR4").replace(/\/$/, "");
 const TOKEN = process.env.MEDBLOCKS_TOKEN || undefined;
 
