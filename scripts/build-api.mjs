@@ -14,6 +14,7 @@ import { build } from "esbuild";
 const entries = [
   { in: "api-src/fhir-proxy.ts", out: "api/fhir-proxy.js" },
   { in: "api-src/notify.ts", out: "api/notify.js" },
+  { in: "api-src/rationale.ts", out: "api/rationale.js" },
   { in: "api-src/health.ts", out: "api/health.js" },
   { in: "api-src/cds-discovery.ts", out: "api/cds-services.js" },
   { in: "api-src/cds-card.ts", out: "api/cds-services/[service].js" },

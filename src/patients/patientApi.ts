@@ -356,6 +356,46 @@ export async function deletePatient(id: string): Promise<void> {
   await request(`Patient/${id}`, { method: "DELETE" });
 }
 
+// ---- RAG cited explanations (server-side; /api/rationale) -------------------
+// Response types are declared locally so the client never imports the server-only
+// rationale module (which pulls the Anthropic SDK) — keeps the SDK out of the bundle.
+
+export interface PillarRationale {
+  pillarId: string;
+  label: string;
+  status: string;
+  /** Grounded, plain-language explanation. */
+  text: string;
+  /** Citation ids (resolve via engine/citations.ts). Retriever-controlled. */
+  citations: string[];
+  /** Whether prose came from the LLM or the deterministic renderer. */
+  source: "engine" | "llm";
+}
+
+export interface RationaleResponse {
+  patientId: string;
+  pillars: PillarRationale[];
+  generatedAt: string;
+  /** Which renderer served this response overall. */
+  mode: "llm" | "deterministic";
+  /** Whether an Anthropic key is configured server-side. */
+  llmConfigured: boolean;
+}
+
+/**
+ * Fetch grounded, cited GDMT explanations for an assessment. The engine (client-side)
+ * decides; this asks the server to retrieve cited evidence and render the rationale.
+ */
+export async function getRationale(assessment: unknown): Promise<RationaleResponse> {
+  const res = await fetch("/api/rationale", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assessment }),
+  });
+  if (!res.ok) throw new Error(`rationale → ${res.status}`);
+  return res.json() as Promise<RationaleResponse>;
+}
+
 /** True if another patient already uses this MRN (optionally excluding one id). */
 export async function mrnExists(mrn: string, excludeId?: string): Promise<boolean> {
   const params = new URLSearchParams();

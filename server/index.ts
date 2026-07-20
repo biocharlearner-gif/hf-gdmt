@@ -23,6 +23,11 @@
 import { discovery, handlePatientView, SERVICE_ID, type CdsRequest } from "../src/cds/service";
 import { createFhirDeps, processNotification } from "./alertService";
 import { proxyFhir } from "./fhirProxy";
+import { generateRationale } from "../src/ai/rationale";
+import type { GdmtAssessment } from "../src/engine/types";
+
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || undefined;
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || undefined;
 
 const MEDBLOCKS_FHIR_BASE = (process.env.MEDBLOCKS_FHIR_BASE || "https://hapi.fhir.org/baseR4").replace(/\/$/, "");
 const MEDBLOCKS_TOKEN = process.env.MEDBLOCKS_TOKEN || undefined;
@@ -85,6 +90,17 @@ Bun.serve({
         const result = await processNotification(body, fhirDeps);
         console.log(`[notify] patient=${result.patientId} alerts=${result.alerts.length} written=${result.created.length}`);
         return json(result);
+      }
+
+      // ---- RAG cited-explanation (grounded LLM, server-side) ---------------
+      if (req.method === "POST" && pathname === "/api/rationale") {
+        const body = (await req.json().catch(() => ({}))) as { assessment?: GdmtAssessment };
+        if (!body.assessment || !Array.isArray(body.assessment.pillars)) {
+          return json({ error: "expected { assessment: GdmtAssessment }" }, 400);
+        }
+        const result = await generateRationale(body.assessment, { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MODEL });
+        const usedLlm = result.pillars.some((p) => p.source === "llm");
+        return json({ ...result, mode: usedLlm ? "llm" : "deterministic", llmConfigured: Boolean(ANTHROPIC_API_KEY) });
       }
 
       // ---- Authenticated FHIR proxy for the SPA ----------------------------

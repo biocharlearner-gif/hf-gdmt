@@ -560,4 +560,26 @@ sandbox), not just when code is written.
   `https://hf-gdmt.vercel.app`, `smartAppUrlConfigured: true`). TEST DATA LEFT ON TENANT (pending
   cleanup decision): 1 SpO₂=86 Observation (`ef40d1f4…`) + its hypoxia DetectedIssue/Flag/Task, and the
   weight-gain DetectedIssue/Flag/Task for Eleanor. Next: RAG cited explanations.
+- 2026-07-20 (d): **RAG cited-explanation module (the flagship differentiator) — engine decides, AI explains.**
+  Built the retrieval-grounded explanation layer end to end. (1) **Curated cited KB**
+  (`src/ai/knowledgeBase.ts`): ~18 paraphrased 2022 AHA/ACC/HFSA statements, each tagged by
+  pillar/topics + a `citationRef` into the existing citation registry (paraphrase-not-verbatim, per
+  copyright rule). (2) **Deterministic retriever** (`src/ai/retrieve.ts`): tag/keyword scoring against
+  query terms derived from the engine facts (pillar status + reason) — no embeddings service, so the
+  same facts always retrieve the same evidence (auditable, testable). (3) **Reworked `src/ai/rationale.ts`**:
+  builds per-pillar grounding {engine facts + retrieved chunks}, an **LLM path** (Anthropic SDK,
+  `claude-opus-4-8` default, structured JSON output) AND a **deterministic cited fallback**. Key safety
+  property: **citations come from the retriever, never the LLM** — the model writes prose only; the app
+  attaches the cited refs, so a hallucinated source is impossible. `generateRationale` uses the LLM when
+  a key is present and falls back to deterministic on missing key or any error → the demo never breaks.
+  (4) **Endpoint** `api-src/rationale.ts` → bundled `api/rationale.js` + Bun route `POST /api/rationale`;
+  reads `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL` server-side only. (5) **UI**: "Explain with cited AI" action
+  on the GDMT tab renders each pillar's grounded rationale + citation deep-links + an AI-vs-deterministic
+  label (`GdmtTab.tsx`; `getRationale` in `patientApi.ts`, response types declared locally so the client
+  bundle never imports the SDK — verified: client bundle unchanged at ~857 kB). `@anthropic-ai/sdk` added
+  as a dependency (static import in the server-only module; Vercel traces it; tree-shaken from client).
+  9 tests (`src/ai/rationale.test.ts`: retrieval relevance + deterministic grounding); 144 green, build
+  + lint clean. **USER ACTION for the live LLM: add `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_MODEL`) to
+  the Vercel project env, then redeploy.** Until then `/api/rationale` serves the deterministic cited
+  fallback. Next: verify live; then CDS Hooks card wiring / multi-EHR DocumentReference / demo script.
 - _YYYY-MM-DD: what got done, what's next, any blockers._

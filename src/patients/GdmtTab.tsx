@@ -16,7 +16,8 @@ import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
-import { getObservations, getMedications, getConditions, getTasksForPatient, createResourceIfNoneExist, type FhirResource } from "./patientApi";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import { getObservations, getMedications, getConditions, getTasksForPatient, createResourceIfNoneExist, getRationale, type FhirResource, type PillarRationale } from "./patientApi";
 import { buildEngineInput } from "../fhir/extract";
 import { evaluateGdmt, gdmtStage, isApplicablePillar, type GdmtAssessment, type GdmtStage, type PillarResult, type PillarStatus, type PillarId, type Phenotype } from "../engine/engine";
 import { projectBenefit } from "../engine/benefit";
@@ -85,6 +86,11 @@ export default function GdmtTab() {
   const [taskRefs, setTaskRefs] = useState<string[]>([]);
   /** pillar id → id of the Task that already exists on the server for that gap. */
   const [existingTasks, setExistingTasks] = useState<Record<string, string>>({});
+  // RAG cited explanations, keyed by pillar id, plus request state.
+  const [rationale, setRationale] = useState<Record<string, PillarRationale>>({});
+  const [rationaleMode, setRationaleMode] = useState<"llm" | "deterministic" | null>(null);
+  const [rationaleBusy, setRationaleBusy] = useState(false);
+  const [rationaleError, setRationaleError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -186,6 +192,21 @@ export default function GdmtTab() {
     }
   }
 
+  async function explainGaps() {
+    if (!assessment) return;
+    setRationaleBusy(true);
+    setRationaleError(null);
+    try {
+      const res = await getRationale(assessment);
+      setRationale(Object.fromEntries(res.pillars.map((p) => [p.pillarId, p])));
+      setRationaleMode(res.mode);
+    } catch (e) {
+      setRationaleError(e instanceof Error ? e.message : "Failed to generate explanations");
+    } finally {
+      setRationaleBusy(false);
+    }
+  }
+
   const benefit = useMemo(() => (assessment ? projectBenefit(assessment) : null), [assessment]);
   const stage = useMemo(() => (assessment ? gdmtStage(assessment) : null), [assessment]);
 
@@ -233,9 +254,34 @@ export default function GdmtTab() {
       )}
 
       <Box>
-        <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5 }}>
-          Guideline-directed medical therapy — four pillars
-        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 1.5, flexWrap: "wrap" }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            Guideline-directed medical therapy — four pillars
+          </Typography>
+          <Box sx={{ textAlign: "right" }}>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<AutoAwesomeIcon />}
+              disabled={rationaleBusy}
+              onClick={explainGaps}
+            >
+              {rationaleBusy ? "Explaining…" : rationaleMode ? "Regenerate explanations" : "Explain with cited AI"}
+            </Button>
+            {rationaleMode && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                {rationaleMode === "llm"
+                  ? "AI-rendered, grounded in engine facts + cited guideline evidence"
+                  : "Deterministic cited explanations (set ANTHROPIC_API_KEY for AI prose)"}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+        {rationaleError && (
+          <Alert severity="warning" sx={{ mb: 1.5 }}>
+            {rationaleError}
+          </Alert>
+        )}
         <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
           {assessment.pillars.map((p) => (
             <PillarCard
@@ -247,6 +293,7 @@ export default function GdmtTab() {
               existingTaskId={existingTasks[p.id]}
               taskState={actions[p.id] ?? IDLE}
               labState={actions[`labs:${p.id}`] ?? IDLE}
+              rationale={rationale[p.id]}
               onCreateTask={() => createTask(p)}
               onOrderLabs={() => orderLabs(p)}
             />
@@ -537,6 +584,7 @@ function PillarCard({
   existingTaskId,
   taskState,
   labState,
+  rationale,
   onCreateTask,
   onOrderLabs,
 }: {
@@ -547,6 +595,7 @@ function PillarCard({
   existingTaskId?: string;
   taskState: ActionState;
   labState: ActionState;
+  rationale?: PillarRationale;
   onCreateTask: () => void;
   onOrderLabs: () => void;
 }) {
@@ -609,6 +658,23 @@ function PillarCard({
       )}
 
       <CitationLine citationRef={pillar.citationRef} />
+
+      {rationale && (
+        <Box sx={{ mt: 1.5, p: 1.25, borderRadius: 1.5, bgcolor: "#f5f3ff", border: "1px solid #ddd6fe" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}>
+            <AutoAwesomeIcon sx={{ fontSize: 16, color: "#6d28d9" }} />
+            <Typography variant="caption" sx={{ fontWeight: 700, color: "#5b21b6" }}>
+              {rationale.source === "llm" ? "AI explanation — grounded & cited" : "Cited explanation"}
+            </Typography>
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            {rationale.text}
+          </Typography>
+          {rationale.citations.map((ref) => (
+            <CitationLine key={ref} citationRef={ref} />
+          ))}
+        </Box>
+      )}
 
       {(canTask || canLabs) && (
         <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
