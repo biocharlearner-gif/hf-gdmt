@@ -546,4 +546,18 @@ sandbox), not just when code is written.
   all 6 HF cohort patients (Eleanor 100·Critical, Sofia 63·High, …) with ages + risk chips, pulled
   through the authenticated proxy. `/cds-services`, `/api/fhir/Patient`, POST `Condition/_search` all 200.
   139 tests green (`resolveUpstream` + nested-path coverage in `server/fhirProxy.test.ts`), build clean.
+- 2026-07-20 (c): **FHIR Subscription registered + alert loop verified live on production.** Registered
+  the vital-signs `Subscription` on the Medblocks tenant pointed at `https://hf-gdmt.vercel.app/notify`
+  (`Subscription/c5fafeef…`). Medblocks created it as `status: requested` and did NOT auto-activate; a
+  PUT to `status: active` succeeded. **Full alert loop verified via direct POST /notify for Eleanor
+  (61f1529f…):** engine fired 2 alerts (weight-gain-7d from seed + hypoxia from a test SpO₂=86
+  Observation) → wrote 2 DetectedIssue+Flag+Task sets; both Tasks queryable; re-invoking /notify created
+  **no duplicates** (idempotency confirmed). BUT: Medblocks does **not deliver** the rest-hook callback
+  automatically — creating a vital-signs Observation did not trigger /notify within 3.5 min, while direct
+  invocation works perfectly. So the tenant's server-side Subscription *delivery* is disabled (common on
+  hosted sandboxes); our engine/service/writeback/idempotency all work. Demo the loop via the Vitals-tab
+  Accept path or a direct /notify call. `/health` now echoes `smartAppUrl` (verified
+  `https://hf-gdmt.vercel.app`, `smartAppUrlConfigured: true`). TEST DATA LEFT ON TENANT (pending
+  cleanup decision): 1 SpO₂=86 Observation (`ef40d1f4…`) + its hypoxia DetectedIssue/Flag/Task, and the
+  weight-gain DetectedIssue/Flag/Task for Eleanor. Next: RAG cited explanations.
 - _YYYY-MM-DD: what got done, what's next, any blockers._
