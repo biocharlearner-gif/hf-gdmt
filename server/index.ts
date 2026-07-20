@@ -56,7 +56,13 @@ Bun.serve({
       if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
       if (req.method === "GET" && pathname === "/health") {
-        return json({ ok: true, fhirBase: MEDBLOCKS_FHIR_BASE, authenticated: Boolean(MEDBLOCKS_TOKEN) });
+        return json({
+          ok: true,
+          fhirBase: MEDBLOCKS_FHIR_BASE,
+          authenticated: Boolean(MEDBLOCKS_TOKEN),
+          smartAppUrl: SMART_APP_URL,
+          smartAppUrlConfigured: Boolean(process.env.SMART_APP_URL),
+        });
       }
 
       // ---- CDS Hooks -------------------------------------------------------
