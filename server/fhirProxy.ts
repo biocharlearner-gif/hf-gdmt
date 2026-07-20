@@ -22,7 +22,15 @@ export interface FhirProxyConfig {
 export async function proxyFhir(req: Request, url: URL, config: FhirProxyConfig): Promise<Response> {
   const fhirBase = config.fhirBase.replace(/\/$/, "");
   const upstreamPath = url.pathname.slice("/api/fhir".length); // "" or "/Patient/..."
-  const target = `${fhirBase}${upstreamPath}${url.search}`;
+
+  // Vercel's `[...path]` catch-all injects the matched path as a query param literally
+  // named `...path` (e.g. `?_count=1&...path=Patient`). Strip it so it isn't forwarded
+  // to the FHIR server as a bogus search parameter. Harmless under the Bun BFF, which
+  // never adds it. `url.pathname` already holds the real path, so we don't need it.
+  const params = new URLSearchParams(url.search);
+  params.delete("...path");
+  const qs = params.toString();
+  const target = `${fhirBase}${upstreamPath}${qs ? `?${qs}` : ""}`;
 
   const headers: Record<string, string> = {
     Accept: req.headers.get("accept") || "application/fhir+json",
