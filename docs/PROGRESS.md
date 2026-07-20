@@ -534,4 +534,16 @@ sandbox), not just when code is written.
   build clean. Remaining for the live URL: set/confirm `SMART_APP_URL=https://hf-gdmt.vercel.app` so CDS
   launch links are absolute, then register the Subscription (`CALLBACK_URL=…/notify`) to close the E2E.
   Next: RAG cited explanations.
+- 2026-07-20 (b): **Fixed nested FHIR paths on Vercel — roster verified live.** After the initial
+  deploy, the FHIR proxy worked for single-segment paths (`/api/fhir/Patient`) but 404'd on nested ones
+  (`/api/fhir/Condition/_search`, the roster's POST search): Vercel's filesystem `[...path]` catch-all
+  only matched one segment for a pre-built `.js` function. Replaced it with a single `api/fhir-proxy.js`
+  + an explicit `vercel.json` rewrite `/api/fhir/:_vpath* → /api/fhir-proxy?__path=:_vpath*`. Two follow-on
+  subtleties, both fixed and diagnosed with throwaway echo probes: the proxy must strip the injected
+  path param, AND Vercel appends its **own** copy of the matched route param (named after the route
+  var) on top of the explicit `__path` — so the route var is named `_vpath` (no FHIR collision) and
+  `resolveUpstream` strips `__path`/`_vpath`/`...path`. Verified live in-browser: the demo roster renders
+  all 6 HF cohort patients (Eleanor 100·Critical, Sofia 63·High, …) with ages + risk chips, pulled
+  through the authenticated proxy. `/cds-services`, `/api/fhir/Patient`, POST `Condition/_search` all 200.
+  139 tests green (`resolveUpstream` + nested-path coverage in `server/fhirProxy.test.ts`), build clean.
 - _YYYY-MM-DD: what got done, what's next, any blockers._
