@@ -520,4 +520,18 @@ sandbox), not just when code is written.
   (Bun BFF, Clinical/GDMT/CarePlan tabs, remote-monitoring stack, Vercel functions). One content
   conflict (this session log) resolved to the branch version, keeping main's strict-TS note. Rebuilt
   the whole tree under the now-merged strict tsconfig before pushing.
+- 2026-07-20: **App is LIVE on Vercel (https://hf-gdmt.vercel.app) — full stack verified.** After the
+  merge, the GitHub-integration deploy exposed two Vercel-specific breakages (both fixed, documented in
+  `docs/DEPLOY.md` "Vercel gotchas"): (1) the serverless functions didn't bundle TS imported from
+  outside `/api` (`FUNCTION_INVOCATION_FAILED` on every function that used shared code, incl. the FHIR
+  proxy the SPA depends on) → moved handlers to `api-src/` and esbuild-bundle them into self-contained
+  `api/*.js` via `scripts/build-api.mjs` + a `prebuild` hook (committed output; esbuild now a declared
+  devDep); (2) Vercel's `[...path]` catch-all injects a `...path` query param → `proxyFhir` strips it
+  before forwarding (was 400ing every FHIR search). Diagnosed both against the live deploy with throwaway
+  probe endpoints. Verified live: `/api/fhir/Patient` + HF-cohort `Condition?_tag=…` → 200 with real
+  Bundles (SPA data path works), `/cds-services` discovery + patient-view card → 200, `/notify` safe
+  no-op, `/health` authenticated against the Medblocks tenant. 133 tests green (+3 `fhirProxy.test.ts`),
+  build clean. Remaining for the live URL: set/confirm `SMART_APP_URL=https://hf-gdmt.vercel.app` so CDS
+  launch links are absolute, then register the Subscription (`CALLBACK_URL=…/notify`) to close the E2E.
+  Next: RAG cited explanations.
 - _YYYY-MM-DD: what got done, what's next, any blockers._

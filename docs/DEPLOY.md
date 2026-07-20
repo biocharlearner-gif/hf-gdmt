@@ -49,6 +49,20 @@ vercel --prod            # production deploy → prints the public URL
 Then set `SMART_APP_URL` to that printed URL and redeploy (`vercel --prod`) so CDS
 launch links point at the right host.
 
+## Vercel gotchas (both hit and fixed 2026-07-20 — do not regress)
+
+1. **Functions do not bundle TS imported from outside `/api`.** Vercel compiles each
+   `/api/*.ts` entry individually and leaves `../src` / `../server` imports as runtime
+   imports to files that aren't deployed → `FUNCTION_INVOCATION_FAILED` / `Cannot find
+   module`. Fix: handlers live in `api-src/` and are **esbuild-bundled** into
+   self-contained `api/*.js` by `scripts/build-api.mjs` (a `prebuild` npm hook runs it on
+   every `npm run build`; the generated `api/*.js` are committed so Vercel detects the
+   functions). Never hand-author `.ts` files directly under `/api` that import shared code.
+2. **The `[...path]` catch-all injects a query param named `...path`.** A request to
+   `/api/fhir/Patient?_count=1` reaches the function with search `?_count=1&...path=Patient`.
+   `proxyFhir` deletes the `...path` param before forwarding (else HAPI 400s on the bogus
+   search parameter). `url.pathname` already carries the real path.
+
 ## Post-deploy verification
 
 1. `curl https://<app>.vercel.app/health` → `{ ok: true, authenticated: true }`.
