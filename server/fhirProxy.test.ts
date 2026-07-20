@@ -66,6 +66,12 @@ describe("resolveUpstream", () => {
     const u = new URL("https://x/api/fhir-proxy?__path=Patient/123&_summary=true");
     expect(resolveUpstream(u)).toEqual({ path: "/Patient/123", query: "_summary=true" });
   });
+  it("strips both the explicit __path and Vercel's auto-appended route param copy", () => {
+    // Vercel appends its own copy of the matched route param (named _vpath here) in
+    // addition to the explicit ?__path=:_vpath* we set in the destination.
+    const u = new URL("https://x/api/fhir/Patient?_count=1&__path=Patient&_vpath=Patient");
+    expect(resolveUpstream(u)).toEqual({ path: "/Patient", query: "_count=1" });
+  });
   it("falls back to the pathname after /api/fhir", () => {
     const u = new URL("https://x/api/fhir/Observation?patient=p1&_count=5");
     expect(resolveUpstream(u)).toEqual({ path: "/Observation", query: "patient=p1&_count=5" });

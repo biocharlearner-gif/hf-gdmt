@@ -29,11 +29,13 @@ export interface FhirProxyConfig {
  * Both `__path` and the older `...path` catch-all param are stripped from the forwarded query.
  * Exported for tests.
  */
+/** Query params Vercel's rewrite/catch-all inject — never forwarded to the FHIR server. */
+const REWRITE_PARAMS = ["__path", "_vpath", "...path", "__debug"];
+
 export function resolveUpstream(url: URL): { path: string; query: string } {
   const params = new URLSearchParams(url.search);
   let path = params.get("__path");
-  params.delete("__path");
-  params.delete("...path");
+  for (const k of REWRITE_PARAMS) params.delete(k);
   if (path == null) {
     const marker = "/api/fhir";
     const i = url.pathname.indexOf(marker);
