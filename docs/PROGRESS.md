@@ -114,20 +114,44 @@ sandbox), not just when code is written.
   FHIR server that allows a single all-Tasks query, replace the per-patient loop in
   `src/patients/TasksPage.tsx` (`getTasksForPatient`) with one `Task?_tag=...` query.**
 
-## Next up (immediate)
-1. **Deploy** the SPA + `alertService` to a public URL and complete the FHIR Subscription end-to-end
-   test (save a vital → alert fires automatically); make the alert service's create conditional too.
-2. RAG cited-explanation module + wire `src/ai/rationale.ts` (engine facts + retrieved chunks →
-   grounded plain-language alert explanation, server-side only).
-3. Extend the terminology `$expand` to the engine extract path (`src/fhir/extract.ts`), replacing hardcoded value sets.
-4. Deploy/wire the CDS Hooks service (`src/cds/service.ts`) + SMART-launch link; verify reads/writes against real Epic + a writable sandbox.
-   - **CarePlan publish-back (write-permission aware):** when integrating a real EHR, don't assume
-     `CarePlan.write`. Publish the generated plan as a **`DocumentReference`** (LOINC 18776-5 "Plan of
-     care note", clinical-note) with the `carePlanSummary.ts` handout as the attachment (optionally a
-     FHIR Document Bundle: Composition → CarePlan + Goals + Observations), routed through the read/write
-     split (`fhirClient.writeBaseUrl`). Choose `CarePlan.write` where granted, fall back to
-     DocumentReference where not (often do both). Full design note:
-     `~/.claude/plans/are-their-any-resources-playful-crystal.md`.
+## Next up (immediate) — HANDOFF for the next session (set 2026-07-20)
+**Live app: https://hf-gdmt.vercel.app** (Vercel auto-deploys on push to `main`). Deploy, RAG (incl.
+free pre-baked "Option C"), remote-monitoring loop, and CDS Hooks endpoints are all DONE + verified live
+(see the 2026-07-20 session-log entries). The two tasks the user asked to continue next:
+
+1. **Demo CDS Hooks against a REAL EHR sandbox.** Our CDS service is already live and correct:
+   `GET https://hf-gdmt.vercel.app/cds-services` returns discovery; `POST …/cds-services/hf-gdmt-optimizer`
+   returns a patient-view Card (verified — returns a card for an HFrEF patient with gaps, `{cards:[]}`
+   when nothing actionable). `SMART_APP_URL` is set so the card's launch link points at the deployed app.
+   What's left is to SHOW it firing inside an EHR:
+   - **Fastest, no EHR account:** the public **CDS Hooks Sandbox** (sandbox.cds-hooks.org) — point it at
+     our discovery URL, pick/craft a patient-view context with an HFrEF patient (LVEF ≤40 + a gap), and
+     screenshot the rendered card + the "Open GDMT Optimizer" SMART link. Good enough for the demo video.
+   - **Real Epic:** register the service in the Epic sandbox / App Orchard-style CDS config so the card
+     fires on patient-view; needs the Epic sandbox (already have creds — see memory `hf-gdmt-epic-sandbox`).
+     Note the prefetch templates in `src/cds/service.ts` (`discovery()`) — confirm Epic supplies them or
+     falls back to fetch. Heavier setup; the Sandbox path is the pragmatic demo.
+   - Deliverable: a short scripted walkthrough (open patient in the EHR/sandbox → card appears → click
+     launch → lands on the GDMT tab) for the demo video.
+2. **Browser pass of the live GDMT tab.** Drive https://hf-gdmt.vercel.app in the in-app Browser: Demo
+   Account → a patient (Eleanor/HF-001 is the rich HFrEF case; Priya/HF-003 is the MRA-contraindicated
+   case) → GDMT tab → click **"Explain with cited AI"** → confirm each pillar shows the AI-drafted
+   (pre-baked) rationale + citation deep-links + the "AI-drafted explanation — grounded & cited" label,
+   `mode: prebaked`. Screenshot for proof. (The endpoint is already verified via curl; this is the visual
+   end-to-end confirmation.)
+
+### Later / lower priority
+3. **Multi-EHR `DocumentReference` publish-back** (write-permission-tolerant CarePlan path). Don't assume
+   `CarePlan.write`; publish the plan as a **`DocumentReference`** (LOINC 18776-5 "Plan of care note")
+   with the `carePlanSummary.ts` handout as the attachment, via `fhirClient.writeBaseUrl`. New
+   `buildDocumentReference` in `fhir/writeback.ts` + a "Publish to chart" action on `CarePlanTab.tsx`.
+   Full design note: `~/.claude/plans/are-their-any-resources-playful-crystal.md`.
+4. **Demo video + 90-second script** ("engine decides → AI explains → loop closes"). Unchecked; this is
+   what actually gets scored — script it around the live app.
+5. Extend terminology `$expand` to the engine extract path (`src/fhir/extract.ts`), replacing hardcoded
+   value sets (only the patient-list cohort uses the tx server today).
+6. OPTIONAL: set `ANTHROPIC_API_KEY` in Vercel to upgrade RAG prose from pre-baked → live LLM (identical
+   citations; not required — pre-baked ships free).
 
 ## Feature checklist
 
