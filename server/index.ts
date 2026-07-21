@@ -99,8 +99,12 @@ Bun.serve({
           return json({ error: "expected { assessment: GdmtAssessment }" }, 400);
         }
         const result = await generateRationale(body.assessment, { apiKey: ANTHROPIC_API_KEY, model: ANTHROPIC_MODEL });
-        const usedLlm = result.pillars.some((p) => p.source === "llm");
-        return json({ ...result, mode: usedLlm ? "llm" : "deterministic", llmConfigured: Boolean(ANTHROPIC_API_KEY) });
+        const mode = result.pillars.some((p) => p.source === "llm")
+          ? "llm"
+          : result.pillars.some((p) => p.source === "prebaked")
+            ? "prebaked"
+            : "deterministic";
+        return json({ ...result, mode, llmConfigured: Boolean(ANTHROPIC_API_KEY) });
       }
 
       // ---- Authenticated FHIR proxy for the SPA ----------------------------

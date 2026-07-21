@@ -88,7 +88,7 @@ export default function GdmtTab() {
   const [existingTasks, setExistingTasks] = useState<Record<string, string>>({});
   // RAG cited explanations, keyed by pillar id, plus request state.
   const [rationale, setRationale] = useState<Record<string, PillarRationale>>({});
-  const [rationaleMode, setRationaleMode] = useState<"llm" | "deterministic" | null>(null);
+  const [rationaleMode, setRationaleMode] = useState<"llm" | "prebaked" | "deterministic" | null>(null);
   const [rationaleBusy, setRationaleBusy] = useState(false);
   const [rationaleError, setRationaleError] = useState<string | null>(null);
 
@@ -271,8 +271,10 @@ export default function GdmtTab() {
             {rationaleMode && (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
                 {rationaleMode === "llm"
-                  ? "AI-rendered, grounded in engine facts + cited guideline evidence"
-                  : "Deterministic cited explanations (set ANTHROPIC_API_KEY for AI prose)"}
+                  ? "Live AI, grounded in engine facts + cited guideline evidence"
+                  : rationaleMode === "prebaked"
+                    ? "AI-drafted & cited — grounded in engine facts + guideline evidence"
+                    : "Cited explanations grounded in engine facts + guideline evidence"}
               </Typography>
             )}
           </Box>
@@ -664,7 +666,11 @@ function PillarCard({
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.5 }}>
             <AutoAwesomeIcon sx={{ fontSize: 16, color: "#6d28d9" }} />
             <Typography variant="caption" sx={{ fontWeight: 700, color: "#5b21b6" }}>
-              {rationale.source === "llm" ? "AI explanation — grounded & cited" : "Cited explanation"}
+              {rationale.source === "llm"
+                ? "AI explanation — grounded & cited"
+                : rationale.source === "prebaked"
+                  ? "AI-drafted explanation — grounded & cited"
+                  : "Cited explanation"}
             </Typography>
           </Box>
           <Typography variant="body2" color="text.secondary">

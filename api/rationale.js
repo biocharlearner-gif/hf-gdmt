@@ -204,6 +204,37 @@ function retrieveForPillar(assessment, pillar, limit = 3) {
   return KNOWLEDGE_BASE.map((chunk, idx) => ({ chunk, idx, score: scoreChunk(chunk, pillar.id, terms) })).filter((r) => r.score > 0).sort((a, b) => b.score - a.score || a.idx - b.idx).slice(0, limit).map((r) => r.chunk);
 }
 
+// src/ai/prebaked.ts
+var PREBAKED_RATIONALE = {
+  // ---- RAAS inhibitor / ARNI (§7.3.1) --------------------------------------
+  "RAASi:GAP_ELIGIBLE": "This patient has HFrEF and is not yet on a renin\u2013angiotensin system inhibitor despite meeting the criteria to start one. Guideline-directed therapy recommends a RAAS inhibitor \u2014 an ARNI preferred where feasible \u2014 to reduce mortality and heart-failure hospitalization, so initiating one is the next step for the care team to consider.",
+  "RAASi:ON_SUBTARGET": "The patient is on a RAAS inhibitor but below the target dose shown to reduce mortality in trials. Guidelines advise up-titrating toward the target (or maximum tolerated) dose, typically at about two-week intervals as blood pressure and renal function allow.",
+  "RAASi:GAP_LABS_NEEDED": "A RAAS inhibitor is indicated, but current potassium and renal-function values are needed before starting or adjusting it, since these medicines are renally active. The care team should obtain up-to-date labs first, then initiate.",
+  "RAASi:CONTRAINDICATED": "A RAAS inhibitor is being withheld because a safety factor makes it inappropriate here \u2014 for example a history of angioedema (an absolute contraindication for ARNI and ACE inhibitors) or symptomatic hypotension. The specific factor the engine flagged should guide whether an alternative pathway or watchful waiting is appropriate.",
+  "RAASi:INSUFFICIENT_DATA": "There isn't enough information to determine this patient's RAAS-inhibitor status. Confirming the current medication list and recent potassium/renal labs will let the engine assess eligibility.",
+  // ---- Beta-blocker (§7.3.2) ------------------------------------------------
+  "BetaBlocker:GAP_ELIGIBLE": "This HFrEF patient is not on one of the three evidence-based beta-blockers \u2014 bisoprolol, carvedilol, or sustained-release metoprolol succinate \u2014 that reduce mortality. Guidelines recommend starting one in a stable, euvolemic patient, so beta-blockade is the next therapy to consider.",
+  "BetaBlocker:ON_SUBTARGET": "The patient is on an evidence-based beta-blocker but below the trial target dose. Up-titration toward target (or the maximum tolerated dose) is advised as heart rate and blood pressure allow, since the mortality benefit is dose-related.",
+  "BetaBlocker:GAP_LABS_NEEDED": "Beta-blocker therapy is indicated; confirm the patient is clinically stable and euvolemic before initiating or increasing the dose.",
+  "BetaBlocker:CONTRAINDICATED": "A beta-blocker is being held because of a limiting factor such as bradycardia or acute decompensation. Guidelines advise initiating only in stable patients and avoiding up-titration during decompensation; revisit once the limiting factor resolves.",
+  "BetaBlocker:INSUFFICIENT_DATA": "There isn't enough information to assess beta-blocker status; confirming the current medication list will let the engine evaluate eligibility.",
+  // ---- MRA (§7.3.3) ---------------------------------------------------------
+  "MRA:GAP_ELIGIBLE": "This HFrEF patient is not on a mineralocorticoid receptor antagonist despite potassium and renal function that permit one. An MRA (spironolactone or eplerenone) carries a Class 1 mortality benefit here, so starting one \u2014 with follow-up potassium monitoring \u2014 is the next step to consider.",
+  "MRA:ON_SUBTARGET": "The patient is on an MRA below the target dose; up-titration toward target is advised as potassium and renal function permit, with monitoring after each change.",
+  "MRA:GAP_LABS_NEEDED": "An MRA is indicated, but current potassium and renal-function values are required before starting it because of hyperkalemia risk. Obtain up-to-date labs first, then initiate if they fall within the safe range.",
+  "MRA:CONTRAINDICATED": "An MRA is being held because a safety threshold is outside the range where it can be started \u2014 elevated serum potassium or significantly reduced renal function. Guidelines advise against initiating an MRA in this setting given the hyperkalemia risk; recheck labs and reconsider once values normalize.",
+  "MRA:INSUFFICIENT_DATA": "There isn't enough information to assess MRA status; confirming the medication list and recent potassium/renal labs will let the engine evaluate eligibility.",
+  // ---- SGLT2 inhibitor (§7.3.4) --------------------------------------------
+  "SGLT2i:GAP_ELIGIBLE": "This patient is not on an SGLT2 inhibitor, which reduces heart-failure hospitalization and cardiovascular death in symptomatic heart failure regardless of diabetes status \u2014 and benefits patients across the ejection-fraction spectrum, not only HFrEF. Initiating dapagliflozin or empagliflozin is the next step to consider.",
+  "SGLT2i:ON_SUBTARGET": "SGLT2 inhibitors are given at a single fixed dose rather than titrated, so an on-therapy patient is generally already at goal; confirm continued tolerance and adherence.",
+  "SGLT2i:GAP_LABS_NEEDED": "An SGLT2 inhibitor is indicated; confirm renal function is adequate for initiation, then start.",
+  "SGLT2i:CONTRAINDICATED": "An SGLT2 inhibitor is being withheld because of a limiting factor, such as markedly reduced renal function or another listed contraindication. Revisit once the limiting factor is addressed.",
+  "SGLT2i:INSUFFICIENT_DATA": "There isn't enough information to assess SGLT2-inhibitor status; confirming the current medication list will let the engine evaluate eligibility."
+};
+function prebakedRationale(pillarId, status) {
+  return PREBAKED_RATIONALE[`${pillarId}:${status}`];
+}
+
 // src/ai/rationale.ts
 var EXPLAINABLE = /* @__PURE__ */ new Set([
   "GAP_ELIGIBLE",
@@ -215,18 +246,18 @@ var EXPLAINABLE = /* @__PURE__ */ new Set([
 function buildGrounding(assessment) {
   return assessment.pillars.filter((p) => isApplicablePillar(assessment.phenotype, p.id) && EXPLAINABLE.has(p.status)).map((pillar) => ({ pillar, chunks: retrieveForPillar(assessment, pillar) }));
 }
-function renderDeterministic(g) {
-  const lead = g.pillar.reason.replace(/\s+$/, "");
-  const evidence = g.chunks[0]?.statement;
-  const text = evidence ? `${lead}. Guideline basis: ${evidence}` : lead;
-  return {
+function renderNoLlm(g) {
+  const base = {
     pillarId: g.pillar.id,
     label: g.pillar.label,
     status: g.pillar.status,
-    text,
-    citations: uniqueCitations(g.chunks),
-    source: "engine"
+    citations: uniqueCitations(g.chunks)
   };
+  const pre = prebakedRationale(g.pillar.id, g.pillar.status);
+  if (pre) return { ...base, text: pre, source: "prebaked" };
+  const lead = g.pillar.reason.replace(/\s+$/, "");
+  const evidence = g.chunks[0]?.statement;
+  return { ...base, text: evidence ? `${lead}. Guideline basis: ${evidence}` : lead, source: "engine" };
 }
 function uniqueCitations(chunks) {
   return [...new Set(chunks.map((c) => c.citationRef))];
@@ -234,7 +265,7 @@ function uniqueCitations(chunks) {
 function renderDeterministicRationale(assessment) {
   return {
     patientId: assessment.patientId,
-    pillars: buildGrounding(assessment).map(renderDeterministic),
+    pillars: buildGrounding(assessment).map(renderNoLlm),
     generatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
@@ -315,7 +346,7 @@ async function generateRationaleLLM(assessment, opts) {
           source: "llm"
         };
       }
-      return renderDeterministic(g);
+      return renderNoLlm(g);
     })
   };
 }
@@ -344,8 +375,8 @@ var rationale_default = {
         return json({ error: "expected { assessment: GdmtAssessment }" }, 400);
       }
       const result = await generateRationale(assessment, { apiKey: API_KEY, model: MODEL });
-      const usedLlm = result.pillars.some((p) => p.source === "llm");
-      return json({ ...result, mode: usedLlm ? "llm" : "deterministic", llmConfigured: Boolean(API_KEY) });
+      const mode = result.pillars.some((p) => p.source === "llm") ? "llm" : result.pillars.some((p) => p.source === "prebaked") ? "prebaked" : "deterministic";
+      return json({ ...result, mode, llmConfigured: Boolean(API_KEY) });
     } catch (e) {
       console.error("[rationale] error", e);
       return json({ error: e instanceof Error ? e.message : "error" }, 500);

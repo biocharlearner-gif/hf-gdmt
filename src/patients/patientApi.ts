@@ -368,8 +368,8 @@ export interface PillarRationale {
   text: string;
   /** Citation ids (resolve via engine/citations.ts). Retriever-controlled. */
   citations: string[];
-  /** Whether prose came from the LLM or the deterministic renderer. */
-  source: "engine" | "llm";
+  /** How the prose was produced: live LLM, AI-drafted pre-baked, or deterministic template. */
+  source: "engine" | "llm" | "prebaked";
 }
 
 export interface RationaleResponse {
@@ -377,7 +377,7 @@ export interface RationaleResponse {
   pillars: PillarRationale[];
   generatedAt: string;
   /** Which renderer served this response overall. */
-  mode: "llm" | "deterministic";
+  mode: "llm" | "prebaked" | "deterministic";
   /** Whether an Anthropic key is configured server-side. */
   llmConfigured: boolean;
 }

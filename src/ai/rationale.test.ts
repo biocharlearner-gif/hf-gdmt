@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { GdmtAssessment, PillarResult, Phenotype } from "../engine/types";
 import { retrieveForPillar, queryTermsFor } from "./retrieve";
 import { buildGrounding, renderDeterministicRationale } from "./rationale";
+import { prebakedRationale } from "./prebaked";
 import { CITATIONS } from "../engine/citations";
 
 function pillar(over: Partial<PillarResult> & Pick<PillarResult, "id" | "status">): PillarResult {
@@ -54,6 +55,19 @@ describe("retrieveForPillar", () => {
   });
 });
 
+describe("prebaked rationale coverage", () => {
+  const PILLARS = ["RAASi", "BetaBlocker", "MRA", "SGLT2i"] as const;
+  const STATUSES = ["GAP_ELIGIBLE", "ON_SUBTARGET", "GAP_LABS_NEEDED", "CONTRAINDICATED", "INSUFFICIENT_DATA"] as const;
+
+  it("has AI-drafted prose for every explainable (pillar x status) scenario", () => {
+    for (const p of PILLARS) {
+      for (const s of STATUSES) {
+        expect(prebakedRationale(p, s), `${p}:${s}`).toBeTruthy();
+      }
+    }
+  });
+});
+
 describe("renderDeterministicRationale", () => {
   it("explains actionable applicable pillars, cites a KNOWN reference, and skips on-target ones", () => {
     const a = assessment("HFrEF", [
@@ -64,8 +78,9 @@ describe("renderDeterministicRationale", () => {
     // ON_TARGET is skipped; only the eligible gap is explained
     expect(result.pillars.map((p) => p.pillarId)).toEqual(["RAASi"]);
     const r = result.pillars[0]!;
-    expect(r.source).toBe("engine");
-    expect(r.text).toContain("Not on a RAAS inhibitor"); // grounded in the engine reason
+    // Applicable (pillar × status) scenarios are AI-drafted (pre-baked), no runtime LLM.
+    expect(r.source).toBe("prebaked");
+    expect(r.text).toContain("RAAS inhibitor"); // grounded prose for the eligible-gap scenario
     expect(r.citations.length).toBeGreaterThan(0);
     // every attached citation resolves in the registry (retriever-controlled, not invented)
     for (const c of r.citations) expect(CITATIONS[c]).toBeDefined();

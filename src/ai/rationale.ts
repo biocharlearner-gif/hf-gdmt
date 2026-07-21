@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { GdmtAssessment, PillarResult, PillarStatus, PillarId } from "../engine/types";
 import { isApplicablePillar } from "../engine/engine";
 import { retrieveForPillar } from "./retrieve";
+import { prebakedRationale } from "./prebaked";
 import type { KbChunk } from "./knowledgeBase";
 
 /**
@@ -31,8 +32,13 @@ export interface PillarRationale {
   text: string;
   /** Citation ids used (into src/engine/citations.ts). Retriever-controlled. */
   citations: string[];
-  /** How the prose was produced. */
-  source: "engine" | "llm";
+  /**
+   * How the prose was produced:
+   *  - "llm"      live Anthropic call (grounded)
+   *  - "prebaked" AI-drafted at build time, keyed on (pillar × status) — no runtime cost
+   *  - "engine"   terse deterministic template (last-resort fallback)
+   */
+  source: "engine" | "llm" | "prebaked";
 }
 
 export interface RationaleResult {
@@ -65,29 +71,39 @@ export function buildGrounding(assessment: GdmtAssessment): PillarGrounding[] {
 
 // ---- Deterministic renderer (no LLM) ---------------------------------------
 
-/** Assemble a grounded, cited sentence from the engine reason + the top chunk. Pure. */
-function renderDeterministic(g: PillarGrounding): PillarRationale {
-  const lead = g.pillar.reason.replace(/\s+$/, "");
-  const evidence = g.chunks[0]?.statement;
-  const text = evidence ? `${lead}. Guideline basis: ${evidence}` : lead;
-  return {
+/**
+ * Render one pillar WITHOUT a live LLM: prefer the AI-drafted pre-baked prose for this
+ * (pillar × status) scenario; otherwise assemble a terse cited sentence from the engine
+ * reason + the top retrieved chunk. Citations always come from the retriever. Pure.
+ */
+function renderNoLlm(g: PillarGrounding): PillarRationale {
+  const base = {
     pillarId: g.pillar.id,
     label: g.pillar.label,
     status: g.pillar.status,
-    text,
     citations: uniqueCitations(g.chunks),
-    source: "engine",
   };
+  const pre = prebakedRationale(g.pillar.id, g.pillar.status);
+  if (pre) return { ...base, text: pre, source: "prebaked" };
+
+  const lead = g.pillar.reason.replace(/\s+$/, "");
+  const evidence = g.chunks[0]?.statement;
+  return { ...base, text: evidence ? `${lead}. Guideline basis: ${evidence}` : lead, source: "engine" };
 }
 
 function uniqueCitations(chunks: KbChunk[]): string[] {
   return [...new Set(chunks.map((c) => c.citationRef))];
 }
 
+/**
+ * Render without a live LLM: pre-baked AI prose where available, deterministic template
+ * otherwise. This is the free (no key, no credits) path — real RAG (retrieval + grounding
+ * + citations) with AI-quality prose baked in at build time.
+ */
 export function renderDeterministicRationale(assessment: GdmtAssessment): RationaleResult {
   return {
     patientId: assessment.patientId,
-    pillars: buildGrounding(assessment).map(renderDeterministic),
+    pillars: buildGrounding(assessment).map(renderNoLlm),
     generatedAt: new Date().toISOString(),
   };
 }
@@ -194,7 +210,7 @@ export async function generateRationaleLLM(
           source: "llm" as const,
         };
       }
-      return renderDeterministic(g);
+      return renderNoLlm(g);
     }),
   };
 }

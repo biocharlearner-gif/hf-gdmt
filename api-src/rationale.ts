@@ -27,9 +27,13 @@ export default {
         return json({ error: "expected { assessment: GdmtAssessment }" }, 400);
       }
       const result = await generateRationale(assessment, { apiKey: API_KEY, model: MODEL });
-      // Report which renderer served it, so the UI can label AI vs deterministic.
-      const usedLlm = result.pillars.some((p) => p.source === "llm");
-      return json({ ...result, mode: usedLlm ? "llm" : "deterministic", llmConfigured: Boolean(API_KEY) });
+      // Report which renderer served it, so the UI can label the source honestly.
+      const mode = result.pillars.some((p) => p.source === "llm")
+        ? "llm"
+        : result.pillars.some((p) => p.source === "prebaked")
+          ? "prebaked"
+          : "deterministic";
+      return json({ ...result, mode, llmConfigured: Boolean(API_KEY) });
     } catch (e) {
       console.error("[rationale] error", e);
       return json({ error: e instanceof Error ? e.message : "error" }, 500);

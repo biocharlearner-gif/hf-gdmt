@@ -582,4 +582,15 @@ sandbox), not just when code is written.
   + lint clean. **USER ACTION for the live LLM: add `ANTHROPIC_API_KEY` (+ optional `ANTHROPIC_MODEL`) to
   the Vercel project env, then redeploy.** Until then `/api/rationale` serves the deterministic cited
   fallback. Next: verify live; then CDS Hooks card wiring / multi-EHR DocumentReference / demo script.
+- 2026-07-20 (e): **RAG "Option C" — AI-drafted pre-baked explanations (free, no API key/credits).**
+  The user has a Claude Pro subscription (no API credits); Pro can't power a deployed backend endpoint.
+  Since the engine is deterministic, the rationale set is a small finite (pillar × status) lookup, so
+  Claude (Opus 4.8) drafted the grounded prose at build time into `src/ai/prebaked.ts` (20 entries,
+  value-agnostic — patient values come from the engine reason, citations from the retriever). Render
+  precedence is now **live-LLM (if key) > pre-baked > deterministic template** (`renderNoLlm` in
+  `rationale.ts`; `source` gained `"prebaked"`, endpoint `mode` gained `"prebaked"`). The GDMT tab labels
+  it "AI-drafted explanation — grounded & cited". So the demo ships with AI-quality cited prose at ZERO
+  runtime cost; adding `ANTHROPIC_API_KEY` later upgrades to live per-value LLM prose with identical
+  citations. Coverage test guarantees every (pillar × status) has an entry. 145 tests green, build/lint
+  clean, client bundle SDK-free (~858 kB). Next: verify live, then CDS card wiring / demo script.
 - _YYYY-MM-DD: what got done, what's next, any blockers._
