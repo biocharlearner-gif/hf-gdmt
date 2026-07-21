@@ -1,232 +1,223 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getSession } from "../session";
+import { Avatar, Box, Button, Chip, CircularProgress, Container, Paper, Typography } from "@mui/material";
+import FavoriteIcon from "@mui/icons-material/FavoriteBorder";
+import LogoutIcon from "@mui/icons-material/Logout";
+import { getSession, getProvider, ensureProviderDisplay } from "../session";
 import { loadPatientData, type PatientData } from "../data/loadPatient";
-import { createTaskForPillar, createLabOrder, createCarePlanFor } from "../data/writeActions";
-import type { PillarResult, PillarStatus } from "../engine/types";
+import { createTaskForPillar, createLabOrder, createEchoOrder, createCarePlanFor } from "../data/writeActions";
+import { getRationale, type PillarRationale } from "../patients/patientApi";
+import GdmtView, { type ActionState, type RationaleMode } from "../patients/GdmtView";
+import type { PillarResult } from "../engine/types";
 
-const STATUS_LABEL: Record<PillarStatus, string> = {
-    ON_TARGET: "On target",
-    ON_SUBTARGET: "On — sub-target",
-    GAP_ELIGIBLE: "Gap — eligible",
-    GAP_LABS_NEEDED: "Labs needed",
-    CONTRAINDICATED: "Contraindicated",
-    INSUFFICIENT_DATA: "Insufficient data",
-};
+/**
+ * SMART on FHIR (Epic) patient view. Reads the in-context patient from Epic via
+ * `loadPatientData` (in-browser token), runs the pure engine, and renders the SAME shared
+ * `GdmtView` as the demo `GdmtTab` — so the real-EHR launch lands on the polished panel, not a
+ * plain-CSS fallback. Write-backs go through the session's FhirClient (write base = Epic by
+ * default, or VITE_FHIR_WRITE_BASE) — Epic is read-only for these, so writes may 403/405 and
+ * the panel surfaces the error inline.
+ */
 
-const STATUS_CLASS: Record<PillarStatus, string> = {
-    ON_TARGET: "st-on-target",
-    ON_SUBTARGET: "st-subtarget",
-    GAP_ELIGIBLE: "st-gap",
-    GAP_LABS_NEEDED: "st-labs",
-    CONTRAINDICATED: "st-contra",
-    INSUFFICIENT_DATA: "st-insufficient",
-};
-
-const TASK_STATUSES = new Set<PillarStatus>(["GAP_ELIGIBLE", "ON_SUBTARGET"]);
-
-interface ActionState { status: "idle" | "busy" | "done" | "error"; msg?: string }
 const IDLE: ActionState = { status: "idle" };
 
 export default function PatientView() {
-    const navigate = useNavigate();
-    const [data, setData] = useState<PatientData | null>(null);
-    const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [data, setData] = useState<PatientData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [providerName, setProviderName] = useState<string | null>(() => getProvider().display ?? null);
 
-    // write-back state, keyed by pillar id; plus collected Task refs + CarePlan state
-    const [actions, setActions] = useState<Record<string, ActionState>>({});
-    const [taskRefs, setTaskRefs] = useState<string[]>([]);
-    const [carePlan, setCarePlan] = useState<ActionState>(IDLE);
+  const [actions, setActions] = useState<Record<string, ActionState>>({});
+  const [taskRefs, setTaskRefs] = useState<string[]>([]);
+  const [carePlan, setCarePlan] = useState<ActionState>(IDLE);
 
-    useEffect(() => {
-        if (!getSession()) {
-            navigate("/", { replace: true });
-            return;
-        }
-        loadPatientData()
-            .then(setData)
-            .catch((err) => setError(err instanceof Error ? err.message : "Unknown error"));
-    }, [navigate]);
+  const [rationale, setRationale] = useState<Record<string, PillarRationale>>({});
+  const [rationaleMode, setRationaleMode] = useState<RationaleMode | null>(null);
+  const [rationaleBusy, setRationaleBusy] = useState(false);
+  const [rationaleError, setRationaleError] = useState<string | null>(null);
 
-    const setAction = (id: string, s: ActionState) =>
-        setActions((prev) => ({ ...prev, [id]: s }));
-
-    async function handleCreateTask(pillar: PillarResult) {
-        setAction(pillar.id, { status: "busy" });
-        try {
-            const id = await createTaskForPillar(pillar);
-            setTaskRefs((prev) => [...prev, `Task/${id}`]);
-            setAction(pillar.id, { status: "done", msg: `Task created (${id})` });
-        } catch (err) {
-            setAction(pillar.id, { status: "error", msg: err instanceof Error ? err.message : "Failed" });
-        }
+  useEffect(() => {
+    if (!getSession()) {
+      navigate("/", { replace: true });
+      return;
     }
+    loadPatientData()
+      .then(setData)
+      .catch((err) => setError(err instanceof Error ? err.message : "Unknown error"));
+    // Resolve the ordering clinician's name (id_token often carries only a reference).
+    ensureProviderDisplay().then((p) => p.display && setProviderName(p.display));
+  }, [navigate]);
 
-    async function handleOrderLabs(pillar: PillarResult) {
-        setAction(pillar.id, { status: "busy" });
-        try {
-            const id = await createLabOrder();
-            setAction(pillar.id, { status: "done", msg: `Lab order created (${id})` });
-        } catch (err) {
-            setAction(pillar.id, { status: "error", msg: err instanceof Error ? err.message : "Failed" });
-        }
+  const setAction = (key: string, s: ActionState) => setActions((prev) => ({ ...prev, [key]: s }));
+
+  const handleCreateTask = useCallback(async (pillar: PillarResult) => {
+    setAction(pillar.id, { status: "busy" });
+    try {
+      const id = await createTaskForPillar(pillar);
+      setTaskRefs((prev) => [...prev, `Task/${id}`]);
+      setAction(pillar.id, { status: "done", msg: `Task created (${id})` });
+    } catch (err) {
+      setAction(pillar.id, { status: "error", msg: err instanceof Error ? err.message : "Failed" });
     }
+  }, []);
 
-    async function handleCarePlan() {
-        if (!data) return;
-        setCarePlan({ status: "busy" });
-        try {
-            const id = await createCarePlanFor(data.assessment, taskRefs);
-            setCarePlan({ status: "done", msg: `CarePlan created (${id})` });
-        } catch (err) {
-            setCarePlan({ status: "error", msg: err instanceof Error ? err.message : "Failed" });
-        }
+  const handleOrderLabs = useCallback(async (pillar: PillarResult) => {
+    const key = `labs:${pillar.id}`;
+    setAction(key, { status: "busy" });
+    try {
+      const id = await createLabOrder();
+      setAction(key, { status: "done", msg: `Lab order created (${id})` });
+    } catch (err) {
+      setAction(key, { status: "error", msg: err instanceof Error ? err.message : "Failed" });
     }
+  }, []);
 
-    if (error) {
-        return (
-            <div className="page-center">
-                <div className="card card-narrow">
-                    <div className="status-icon error-icon">✕</div>
-                    <h2>Could not load patient</h2>
-                    <div className="error-box">{error}</div>
-                    <button className="connect-btn" onClick={() => navigate("/")}>← Back</button>
-                </div>
-            </div>
-        );
+  const handleOrderEcho = useCallback(async () => {
+    setAction("echo", { status: "busy" });
+    try {
+      const id = await createEchoOrder();
+      setAction("echo", { status: "done", msg: `Echo order created (${id})` });
+    } catch (err) {
+      setAction("echo", { status: "error", msg: err instanceof Error ? err.message : "Failed" });
     }
+  }, []);
 
-    if (!data) {
-        return (
-            <div className="page-center">
-                <div className="card card-narrow">
-                    <div className="exchanging-animation">
-                        <div className="orbit-ring" />
-                        <div className="orbit-core" />
-                    </div>
-                    <h2>Loading patient & GDMT assessment…</h2>
-                    <p className="subtitle">Reading FHIR resources and running the rule engine.</p>
-                </div>
-            </div>
-        );
+  const handleCarePlan = useCallback(async () => {
+    if (!data) return;
+    setCarePlan({ status: "busy" });
+    try {
+      const id = await createCarePlanFor(data.assessment, taskRefs);
+      setCarePlan({ status: "done", msg: `CarePlan created (${id})` });
+    } catch (err) {
+      setCarePlan({ status: "error", msg: err instanceof Error ? err.message : "Failed" });
     }
+  }, [data, taskRefs]);
 
-    const { patient, assessment } = data;
+  const explainGaps = useCallback(async () => {
+    if (!data) return;
+    setRationaleBusy(true);
+    setRationaleError(null);
+    try {
+      const res = await getRationale(data.assessment);
+      setRationale(Object.fromEntries(res.pillars.map((p) => [p.pillarId, p])));
+      setRationaleMode(res.mode);
+    } catch (e) {
+      setRationaleError(e instanceof Error ? e.message : "Failed to generate explanations");
+    } finally {
+      setRationaleBusy(false);
+    }
+  }, [data]);
 
+  if (error) {
     return (
-        <div className="page-center">
-            <div className="card">
-                {/* Patient header */}
-                <div className="card-header">
-                    <span className="badge">SMART on FHIR · Epic</span>
-                </div>
-                <h1>{patient.name}</h1>
-                <div className="config-block">
-                    <div className="config-row">
-                        <span className="config-label">Age / Sex</span>
-                        <span className="config-value">
-                            {patient.age ?? "?"} · {patient.gender ?? "unknown"}
-                        </span>
-                    </div>
-                    <div className="config-row">
-                        <span className="config-label">MRN</span>
-                        <span className="config-value">{patient.mrn ?? "—"}</span>
-                    </div>
-                    <div className="config-row">
-                        <span className="config-label">LVEF</span>
-                        <span className="config-value">
-                            {assessment.lvef !== undefined ? `${assessment.lvef}%` : "unknown"}
-                        </span>
-                    </div>
-                    <div className="config-row">
-                        <span className="config-label">Phenotype</span>
-                        <span className="config-value config-green">{assessment.phenotype}</span>
-                    </div>
-                </div>
-
-                {/* GDMT score */}
-                <div className="gdmt-score">
-                    <span className="gdmt-score-num">{assessment.gdmtScore}</span>
-                    <span className="gdmt-score-of">/ 4 pillars on therapy</span>
-                    <span className="gdmt-opt">{Math.round(assessment.optimizationPct * 100)}% at target</span>
-                </div>
-
-                {/* Pillar panel */}
-                <div className="pillar-list">
-                    {assessment.pillars.map((p) => {
-                        const a = actions[p.id] ?? IDLE;
-                        const canTask = TASK_STATUSES.has(p.status);
-                        const canLabs = p.status === "GAP_LABS_NEEDED";
-                        return (
-                            <div className="pillar-row" key={p.id}>
-                                <div className="pillar-head">
-                                    <span className="pillar-label">{p.label}</span>
-                                    <span className={`pillar-status ${STATUS_CLASS[p.status]}`}>
-                                        {STATUS_LABEL[p.status]}
-                                    </span>
-                                </div>
-                                {p.agent && (
-                                    <div className="pillar-agent">
-                                        {p.agent.name}
-                                        {p.agent.dailyDoseMg ? ` · ${p.agent.dailyDoseMg} mg/day` : ""}
-                                        {p.agent.targetDoseMg ? ` (target ${p.agent.targetDoseMg})` : ""}
-                                    </div>
-                                )}
-                                <div className="pillar-reason">{p.reason}</div>
-                                <div className="pillar-cite">Source: {p.citationRef}</div>
-
-                                {(canTask || canLabs) && (
-                                    <div className="pillar-actions">
-                                        {canTask && (
-                                            <button
-                                                className="action-btn"
-                                                disabled={a.status === "busy" || a.status === "done"}
-                                                onClick={() => handleCreateTask(p)}
-                                            >
-                                                {a.status === "busy" ? "Creating…"
-                                                    : a.status === "done" ? "✓ Task created"
-                                                    : p.suggestedAction?.text ?? "Create Task"}
-                                            </button>
-                                        )}
-                                        {canLabs && (
-                                            <button
-                                                className="action-btn"
-                                                disabled={a.status === "busy" || a.status === "done"}
-                                                onClick={() => handleOrderLabs(p)}
-                                            >
-                                                {a.status === "busy" ? "Ordering…"
-                                                    : a.status === "done" ? "✓ Labs ordered"
-                                                    : "Order labs"}
-                                            </button>
-                                        )}
-                                        {a.status === "error" && <span className="action-err">{a.msg}</span>}
-                                        {a.status === "done" && a.msg && <span className="action-ok">{a.msg}</span>}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-
-                {/* CarePlan */}
-                <div className="careplan-bar">
-                    <button
-                        className="connect-btn"
-                        disabled={carePlan.status === "busy" || carePlan.status === "done"}
-                        onClick={handleCarePlan}
-                    >
-                        {carePlan.status === "busy" ? "Generating CarePlan…"
-                            : carePlan.status === "done" ? "✓ CarePlan created"
-                            : "Generate GDMT CarePlan"}
-                    </button>
-                    {carePlan.status === "error" && <span className="action-err">{carePlan.msg}</span>}
-                    {carePlan.status === "done" && carePlan.msg && <span className="action-ok">{carePlan.msg}</span>}
-                </div>
-
-                <button className="connect-btn secondary" onClick={() => navigate("/")}>
-                    ← Disconnect
-                </button>
-            </div>
-        </div>
+      <Container maxWidth="sm" sx={{ py: 8 }}>
+        <Paper variant="outlined" sx={{ p: 4, textAlign: "center", borderRadius: 2 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+            Could not load patient
+          </Typography>
+          <Typography variant="body2" color="error.main" sx={{ mb: 2, wordBreak: "break-word" }}>
+            {error}
+          </Typography>
+          <Button variant="outlined" onClick={() => navigate("/")}>
+            ← Back
+          </Button>
+        </Paper>
+      </Container>
     );
+  }
+
+  if (!data) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", py: 12, gap: 2 }}>
+        <CircularProgress />
+        <Typography variant="body2" color="text.secondary">
+          Reading Epic FHIR resources and running the rule engine…
+        </Typography>
+      </Box>
+    );
+  }
+
+  const { patient, assessment } = data;
+  const initials = patient.name.split(/\s+/).map((s) => s[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+
+  return (
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
+      {/* Patient app bar */}
+      <Paper elevation={0} square sx={{ borderBottom: "1px solid", borderColor: "divider" }}>
+        <Container maxWidth="lg" sx={{ py: 2, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+          <Avatar sx={{ bgcolor: "primary.main", width: 48, height: 48, fontWeight: 700 }}>
+            {initials || <FavoriteIcon />}
+          </Avatar>
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                {patient.name}
+              </Typography>
+              <Chip size="small" color="primary" variant="outlined" label="SMART on FHIR · Epic" sx={{ fontWeight: 700 }} />
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              {patient.age ?? "?"} yrs · {patient.gender ?? "unknown"}
+              {patient.mrn ? ` · MRN ${patient.mrn}` : ""}
+            </Typography>
+          </Box>
+          {providerName && (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={`Ordering as ${providerName}`}
+              sx={{ fontWeight: 600 }}
+            />
+          )}
+          <Button variant="outlined" color="inherit" startIcon={<LogoutIcon />} onClick={() => navigate("/")}>
+            Disconnect
+          </Button>
+        </Container>
+      </Paper>
+
+      <Container maxWidth="lg" sx={{ py: 3 }}>
+        <GdmtView
+          assessment={assessment}
+          rationale={rationale}
+          rationaleMode={rationaleMode}
+          rationaleBusy={rationaleBusy}
+          rationaleError={rationaleError}
+          onExplain={explainGaps}
+          actions={actions}
+          onCreateTask={handleCreateTask}
+          onOrderLabs={handleOrderLabs}
+          onOrderEcho={handleOrderEcho}
+          footer={
+            <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+              <Box sx={{ flexGrow: 1, minWidth: 200 }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                  Generate a GDMT CarePlan
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Bundle these pillars into one Heart Failure GDMT Optimization CarePlan, written back to the
+                  configured write server.{taskRefs.length > 0 ? ` ${taskRefs.length} Task(s) will link.` : ""}
+                </Typography>
+                {carePlan.status === "error" && (
+                  <Typography variant="caption" color="error.main">
+                    {carePlan.msg}
+                  </Typography>
+                )}
+                {carePlan.status === "done" && carePlan.msg && (
+                  <Typography variant="caption" color="success.main">
+                    {carePlan.msg}
+                  </Typography>
+                )}
+              </Box>
+              <Button
+                variant="contained"
+                disabled={carePlan.status === "busy" || carePlan.status === "done"}
+                onClick={handleCarePlan}
+              >
+                {carePlan.status === "busy" ? "Generating…" : carePlan.status === "done" ? "✓ CarePlan created" : "Generate GDMT CarePlan"}
+              </Button>
+            </Paper>
+          }
+        />
+      </Container>
+    </Box>
+  );
 }

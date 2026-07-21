@@ -6,7 +6,10 @@ const SMART_CONFIG: SmartConfig = {
     iss:         import.meta.env.VITE_SMART_ISS,
     clientId:    import.meta.env.VITE_SMART_CLIENT_ID,
     redirectUri: import.meta.env.VITE_SMART_REDIRECT_URI,
-    scope:       import.meta.env.VITE_SMART_SCOPE,
+    // Provider standalone: the clinician logs in, then a patient is selected
+    // (`launch/patient` + user-level scopes). Falls back to the legacy single
+    // VITE_SMART_SCOPE so an unconfigured env still launches.
+    scope:       import.meta.env.VITE_SMART_SCOPE_STANDALONE || import.meta.env.VITE_SMART_SCOPE,
 };
 
 const FEATURES = [
@@ -66,8 +69,9 @@ export default function Launch()
                         Guideline-directed therapy for heart failure, scored end&#8209;to&#8209;end.
                     </h1>
                     <p className="login-hero-tagline">
-                        A SMART on FHIR app that finds GDMT gaps in HFrEF patients,
-                        explains each with citations, and writes FHIR Tasks to close the loop.
+                        A SMART on FHIR clinical decision-support app that finds GDMT gaps in
+                        your HFrEF patients, explains each with citations, and writes FHIR
+                        Tasks to close the loop.
                     </p>
                 </div>
 
@@ -89,11 +93,11 @@ export default function Launch()
             {/* ── Right: sign-in (light) ──────────────────────────────────── */}
             <main className="login-panel">
                 <div className="login-card">
-                    <span className="login-card-badge">Sign in</span>
-                    <h2 className="login-card-title">Choose how to start</h2>
+                    <span className="login-card-badge">Clinician sign-in</span>
+                    <h2 className="login-card-title">Review your HF panel</h2>
                     <p className="login-card-sub">
-                        Connect a real EHR via SMART on FHIR, or explore instantly with
-                        the demo data set.
+                        Sign in with your EHR credentials via SMART on FHIR to assess real
+                        patients, or explore the workflow instantly with the demo cohort.
                     </p>
 
                     {/* Flow 1 — SMART on FHIR (OAuth2 + PKCE) */}

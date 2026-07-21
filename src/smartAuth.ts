@@ -26,6 +26,7 @@ export interface SmartTokens {
   accessToken: string;
   refreshToken?: string;
   patient?: string;
+  idToken?: string;       // OIDC id_token (JWT) — carries the fhirUser claim when `openid fhirUser` granted
   expiresAt: number;      // epoch ms
   tokenEndpoint: string;
   iss: string;            // FHIR base URL — where read calls go
@@ -120,6 +121,7 @@ export async function completeAuth(): Promise<SmartTokens> {
     accessToken: json.access_token,
     refreshToken: json.refresh_token,
     patient: json.patient,
+    idToken: json.id_token,
     expiresAt: Date.now() + (json.expires_in ?? 3600) * 1000,
     tokenEndpoint,
     iss: cfg.iss,

@@ -456,7 +456,8 @@ function handlePatientView(req, opts) {
   }
   const benefit = projectBenefit(a);
   const gapList = eligibleGaps.map((p) => `- **${p.label}** \u2014 ${p.reason} _(Source: ${p.citationRef})_`).join("\n");
-  const launchUrl = `${opts.smartAppUrl}?patient=${encodeURIComponent(req.context.patientId)}`;
+  const base = opts.smartAppUrl.replace(/\/$/, "");
+  const launchUrl = `${base}/launch`;
   return {
     cards: [
       {

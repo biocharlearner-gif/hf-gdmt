@@ -19,7 +19,10 @@ export default function EhrLaunch() {
             launch,
             clientId:    import.meta.env.VITE_SMART_CLIENT_ID,
             redirectUri: import.meta.env.VITE_SMART_REDIRECT_URI,
-            scope:       import.meta.env.VITE_SMART_SCOPE,
+            // EHR launch: the patient comes from Epic's `launch` context, so
+            // patient-scoped reads + `launch`/`online_access` are enough. Falls
+            // back to the legacy single VITE_SMART_SCOPE when unset.
+            scope:       import.meta.env.VITE_SMART_SCOPE_EHR || import.meta.env.VITE_SMART_SCOPE,
         }).catch((err) => {
             setError(err instanceof Error ? err.message : "Unknown error");
         });

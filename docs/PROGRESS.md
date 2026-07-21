@@ -617,4 +617,129 @@ free pre-baked "Option C"), remote-monitoring loop, and CDS Hooks endpoints are 
   runtime cost; adding `ANTHROPIC_API_KEY` later upgrades to live per-value LLM prose with identical
   citations. Coverage test guarantees every (pillar × status) has an entry. 145 tests green, build/lint
   clean, client bundle SDK-free (~858 kB). Next: verify live, then CDS card wiring / demo script.
+- 2026-07-21: **Verified both handoff tasks live; CDS Hooks now demoable in an EHR sandbox.**
+  (1) **GDMT "Explain with cited AI" — browser-verified live** on https://hf-gdmt.vercel.app.
+  Eleanor (61f1529f) and Priya (26612f4a): clicking the action fires `POST /api/rationale` →
+  200 with `mode:"prebaked"`, `llmConfigured:false`, and every pillar's `source:"prebaked"`.
+  UI renders each pillar's "AI-drafted explanation — grounded & cited" block + citation
+  deep-links; header flips to "Regenerate explanations". Full status range covered:
+  Eleanor = gap-eligible ×3 + sub-target BB; Priya = sub-target RAAS + **contraindicated MRA**
+  (grounded "held because a safety threshold is outside range… recheck labs" + §7.3.3) + two
+  on-target. The free pre-baked path works end-to-end with zero API cost.
+  (2) **CDS Hooks card demoed in the public CDS Hooks Sandbox (sandbox.cds-hooks.org).** Key
+  constraint discovered: a CDS-Hooks client resolves prefetch **client-side**, so the FHIR
+  server it points at must be CORS-open + R4 — and our `/api/fhir` proxy *deliberately* emits
+  no CORS (token-bearing, must stay same-origin, `server/fhirProxy.ts`). So instead of pointing
+  the sandbox at our tenant, seeded a **self-contained HFrEF demo patient on public HAPI R4**
+  (`Patient/137203927` "Harold J. Whitmore", tag `urn:hf-gdmt:demo|cds-hooks-v1`: HF Condition +
+  LVEF 28% + K+ 4.2 + eGFR 68 + HR 72 + SBP 118, no GDMT meds → all 4 pillars GAP_ELIGIBLE).
+  Reproducible one-click deep-link loads service+FHIR+patient and renders the card:
+  `https://sandbox.cds-hooks.org/?serviceDiscoveryURL=https%3A%2F%2Fhf-gdmt.vercel.app%2Fcds-services&fhirServiceUrl=https%3A%2F%2Fhapi.fhir.org%2FbaseR4&patientId=137203927`.
+  Card verified in-sandbox (accessibility tree): "HF below target GDMT: 0 of 4 pillars",
+  warning, 4 cited gap bullets (§7.3.1–7.3.4), source "HF GDMT Optimizer", +73% RRR, launch
+  link `hf-gdmt.vercel.app?patient=137203927`. **SMART-launch caveat (expected, not a bug):**
+  the sandbox disables the launch button ("Cannot launch SMART link without a SMART-enabled
+  FHIR server") + logs a 400 — it's the *sandbox* negotiating a SMART handshake against public
+  HAPI, which isn't SMART-auth-enabled; the card's link is correct. Full runbook + narration
+  script in **`docs/CDS-DEMO.md`**. (Note: screenshots via the in-app browser pane repeatedly
+  timed out — a pane infra issue, not the app; DOM/accessibility-tree reads are the proof.)
+  Next: record the demo video (script ready in CDS-DEMO.md), or the "real Epic" CDS registration
+  for a seamless launch; then multi-EHR DocumentReference publish-back.
+- 2026-07-21 (b): **Real Epic launch — feasibility settled + code made Epic-ready; config is user-side.**
+  User asked to prioritize "real Epic CDS registration for a fully seamless launch." Findings:
+  (1) **CDS-card-in-Epic is blocked** — Epic staff (Matt Sargent, fhir.org chat) confirm you
+  *cannot* test CDS Hooks in the public EOF sandbox; it needs Epic-customer App Orchard/Hyperspace.
+  No public path to watch our card fire in Epic. So "real Epic" = the **launch** half (achievable +
+  demoable) + a customer-only card surface (ready but not self-demoable).
+  (2) **Fixed a real launch bug in `src/cds/service.ts`:** the card's `type:"smart"` link pointed at
+  `${app}?patient=<id>` (the app **login page**, which ignores launch context). Per CDS Hooks spec the
+  EHR appends `iss`+`launch` on click, so it must target the SMART **launch endpoint** — now
+  `${app}/launch` (our `EhrLaunch.tsx` reads iss+launch → PKCE → `/callback` → `/patient` GDMT view).
+  Regenerated the committed `api/cds-services/[service].js` bundle; 145 tests green.
+  (3) **Diagnosed live deploy:** the production bundle has **no `VITE_SMART_*` baked in** (checked the
+  served JS — no Epic ISS/client id/redirect), so "Connect with Epic" can't launch until the user sets
+  the env + redeploys. The requested SMART scope already covers Condition/Observation/MedicationRequest/
+  AllergyIntolerance/Encounter reads (the memory "only Patient.Read" was the Epic *app registration*, not
+  our request).
+  (4) Confirmed the app is otherwise **Epic-launch-ready**: `/launch` EHR-launch entry + standalone
+  "Connect with Epic" both wired; callback lands on `/patient` (`PatientView.tsx`) which renders the
+  4-pillar GDMT from the **Epic** read path (`loadPatient`, in-browser token) — distinct from the MUI
+  `GdmtTab` (BFF→Medblocks). Left as-is; unifying read paths is out of scope/risky.
+  **Deliverable + USER ACTIONS: `docs/EPIC-LAUNCH.md`** — precise Epic-portal steps (redirect
+  `…/callback`, launch `…/launch`, enable Condition/Observation/MedicationRequest/AllergyIntolerance/
+  Encounter Incoming APIs) + Vercel `VITE_SMART_*` env + redeploy. After the user does A+B I drive the
+  browser to verify STEP C (Connect with Epic → fhircamila → GDMT on real Epic data) and capture proof.
+  **UNCOMMITTED**: this session's code fix + the api bundle + docs (CDS-DEMO.md, EPIC-LAUNCH.md,
+  seed-cds-demo.mjs) — commit when ready. Next: user does Epic+Vercel config; then live STEP C verify.
+- 2026-07-21 (c): **Real Epic SMART launch VERIFIED LIVE end-to-end.** After the user set the Epic app
+  (client `ba035637`, appId 56281) + Vercel `VITE_SMART_*`, the live "Connect with Epic" now completes:
+  MyChart login (`fhircamila`/`epicepic1`) → app runs on **real Epic patient data**. Verified via the
+  user's screenshot: "SMART ON FHIR · EPIC" badge, patient MRN `FHRB9N98T45DL55` (Camila, 38F), the
+  engine ran live and correctly returned **phenotype Unknown / all 4 pillars "Labs needed"** — because
+  Camila's Epic record has no LVEF + no recent K+/eGFR/HR. That's the intended *degrade-gracefully,
+  never-guess* safety behavior on real EHR data, not a bug (rich 4-pillar scoring still best shown on the
+  Demo/Medblocks path with seeded HFrEF patients).
+  Debug journey to get there (all diagnosed via a shell probe of Epic's `authorize` endpoint —
+  `error=4` in the login-web redirect ⇔ an unregistered redirect_uri OR unenabled Incoming API):
+  (1) live bundle had **no `VITE_SMART_*` baked in** → user set them in Vercel + redeployed;
+  (2) "Invalid OAuth 2.0 request" on live only → the prod redirect `https://hf-gdmt.vercel.app/callback`
+  was **not registered on Epic's sandbox OAuth build**; adding it to the form wasn't enough — needed
+  **Save & Ready for Sandbox** + **~16 min propagation** (a 60s background poller caught the flip);
+  (3) the "Hyperspace" branding on Epic's error page is generic OAuth error chrome, NOT an
+  audience mismatch — once valid, a Patients-audience app correctly routes to **MyChart** login;
+  (4) Epic silently down-scopes unenabled write scopes (no error), so the write scopes in the request
+  are harmless.
+  **Writeback in the Epic session fails by design:** `ServiceRequest POST → 403` (Epic app has only Read
+  APIs; no `ServiceRequest.Create`), `CarePlan POST → 405` (Epic sandbox doesn't support CarePlan create
+  at all). Root cause: `session.ts:22` `writeBaseUrl = VITE_FHIR_WRITE_BASE || tokens.iss` → unset ⇒
+  writes go to Epic (read-only) ⇒ rejected. **Fix (optional, showcases the read/write split):** set
+  `VITE_FHIR_WRITE_BASE` (e.g. `https://hapi.fhir.org/baseR4`, CORS-open) in Vercel + redeploy → reads
+  from Epic, writes to HAPI. Also earlier this session: fixed the CDS card `type:"smart"` link to target
+  `/launch` (was `?patient=…` = login page); regenerated `api/` bundle; 145 tests green. Runbook:
+  `docs/EPIC-LAUNCH.md`; CDS sandbox demo: `docs/CDS-DEMO.md`. All this session's code+docs still
+  UNCOMMITTED. Next: (optional) writeback split env; commit; demo video.
+- 2026-07-21 (d): **Shared `GdmtView` — the Epic SMART launch now lands on the polished GDMT panel.**
+  The SMART/Epic path used to render the legacy plain-CSS `pages/PatientView.tsx`, while the polished
+  four-pillar UI lived only in the demo `patients/GdmtTab.tsx` (which reads Medblocks via patientApi — a
+  different data source, and its bare `Observation?patient=` queries are Epic-incompatible). Rather than
+  re-point the demo module at Epic (option A, high risk), extracted the **presentation** into a new
+  `src/patients/GdmtView.tsx` (phenotype gate, score card, GDMT-journey stepper, benefit card, 4 pillar
+  cards w/ dose/titration/contraindication/citations, AI-explain, safety note; benefit+stage derived
+  internally). Both hosts now render it, each keeping its own data + write plumbing (option C):
+  - `GdmtTab` (demo) → Medblocks reads + idempotent writes; passes `taskHref` (Tasks-tab deep link) +
+    the CarePlan-tab footer.
+  - `pages/PatientView.tsx` (Epic) rewritten to MUI: themed patient app bar (name/age/MRN + "SMART on
+    FHIR · Epic" chip) + `GdmtView`, wired to `loadPatient` (Epic in-browser token) and `data/writeActions`
+    (+ new `createEchoOrder`); AI-explain reuses the source-agnostic `/api/rationale`.
+  `GdmtView` supports both via optional `existingTasks`/`taskHref` (demo idempotency vs Epic untracked)
+  and a `footer` slot; the "created" chip also honors a `done` action state so Epic (no task-refetch)
+  still shows confirmation. Typecheck + lint clean, **145 tests green**. **Verified the demo host live**
+  in-browser against the seeded HFrEF patient Harold (public HAPI via a local BFF): full panel renders +
+  "Explain with cited AI" → per-pillar AI-drafted cited explanations, no console errors, no regression.
+  **The Epic host renders the identical component but needs a redeploy + a MyChart login to eyeball** (I
+  can't enter credentials). Still UNCOMMITTED (this + all 2026-07-21 work). Next: commit; redeploy; user
+  re-launches Connect with Epic to confirm the polished panel; optional `VITE_FHIR_WRITE_BASE` for writes.
+- 2026-07-21 (b): **Provider-facing migration — Phases 1–4** (plan: `docs/PROVIDER-MIGRATION.md`).
+  User is repositioning the app from patient- to provider-facing (correct: GDMT scoring / Task+CarePlan
+  writeback / CDS Hooks / risk triage are all clinician workflows a MyChart app can't do). Decision:
+  support **both** provider flows — EHR launch (A) + provider standalone (B). (1) **P1 per-flow scopes:**
+  `Launch.tsx` now uses `VITE_SMART_SCOPE_STANDALONE` (`launch/patient` + `user/*`), `EhrLaunch.tsx` uses
+  `VITE_SMART_SCOPE_EHR` (`patient/*` + `launch online_access`), both falling back to the legacy single
+  `VITE_SMART_SCOPE`; documented in `.env.example`. (2) **P4 clinician copy:** `Launch.tsx` reframed
+  ("Clinician sign-in" / "Review your HF panel" / clinical-decision-support tagline); fixed the tab title
+  `index.html` MediFlow Pro → **HF GDMT Optimizer**. (3) **P2 provider patient search — already built**:
+  `PatientSelect.tsx` (real Epic `Patient?family=&given=` + open-by-id) + `Callback.tsx` `/select` route
+  when the token has no patient + `loadPatient.getActivePatientId()`. Robust to `launch/patient` (Epic's
+  own picker → straight to `/patient`; else the custom search). (4) **P3 real provider identity:** new pure
+  `src/smartUser.ts` decodes the `id_token` → `fhirUser` claim → relative `Practitioner/id` + display (12
+  tests); `smartAuth.completeAuth` captures `id_token`; `session` computes `provider` on login and adds
+  `getProvider()` + `ensureProviderDisplay()` (reads the Practitioner when the token has only a reference);
+  `writeActions.ts` stamps `Task/ServiceRequest.requester` + `CarePlan.author` with the real clinician on
+  ALL Epic writes; `PatientView` shows an "Ordering as <provider>" chip. Demo path keeps
+  `src/patients/currentUser.ts` "Dr. Smith". Build clean, **157 tests green** (12 new), changed files lint
+  clean (repo has pre-existing lint debt, untouched). Tab-title + clinician login verified live in-browser.
+  **Blockers/next:** P3's live fhirUser resolution needs a real Epic **provider** login — user reports the
+  Epic app is flipped to Clinicians audience (P0 done); remaining **P5** = set per-flow scope vars +
+  provider client id in Vercel, redeploy, then I drive the browser to verify EHR-launch + provider-standalone
+  end to end. Note the sandbox test user is now a clinician, not `fhircamila`. All 2026-07-21 work still UNCOMMITTED.
 - _YYYY-MM-DD: what got done, what's next, any blockers._

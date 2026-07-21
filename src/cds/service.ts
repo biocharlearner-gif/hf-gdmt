@@ -65,7 +65,13 @@ export function handlePatientView(req: CdsRequest, opts: { smartAppUrl: string }
   const benefit = projectBenefit(a);
   const gapList = eligibleGaps.map((p) => `- **${p.label}** — ${p.reason} _(Source: ${p.citationRef})_`).join("\n");
 
-  const launchUrl = `${opts.smartAppUrl}?patient=${encodeURIComponent(req.context.patientId)}`;
+  // A CDS Hooks `link.type: "smart"` URL must point at the app's SMART **launch**
+  // endpoint: the CDS Client (EHR) appends `iss` + `launch` when the clinician clicks,
+  // and the app performs the EHR launch from there (see src/pages/EhrLaunch.tsx, route
+  // `/launch`). The patient comes from the launch context, not a query param — so we do
+  // NOT append `?patient=`, which would land on the app's login page and drop the context.
+  const base = opts.smartAppUrl.replace(/\/$/, "");
+  const launchUrl = `${base}/launch`;
 
   return {
     cards: [
