@@ -1,4 +1,4 @@
-# HF GDMT Optimizer
+# HF GDMT Optimizer 
 
 SMART on FHIR app for the **Medblocks FHIR App Challenge** (15-day build, real FHIR APIs).
 It scores a heart-failure patient against guideline-directed medical therapy (GDMT), explains
