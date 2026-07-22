@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HF Remote-Monitoring — Alert System</title>
+<style>
+  /* minimal reset */
+  *, *::before, *::after { box-sizing: border-box; }
+  img, svg { max-width: 100%; }
+  :root {
+    color-scheme: light dark;
+    /* clinical, blue-biased neutrals */
+    --ground: #eef2f7;
+    --surface: #ffffff;
+    --surface-2: #f5f8fc;
+    --ink: #0d1a2b;
+    --ink-soft: #46586e;
+    --ink-faint: #7688a0;
+    --hair: #d8e1ec;
+    --hair-strong: #c3d0e0;
+    --accent: #0b6bcb;
+    --accent-2: #0a8ca8;
+    --accent-ink: #084a8f;
+    /* semantic severity — separate from accent */
+    --sev-high: #d1344a;
+    --sev-high-bg: #fdecef;
+    --sev-mod: #b56a00;
+    --sev-mod-bg: #fbf1df;
+    --sev-low: #566b86;
+    --sev-low-bg: #eef2f7;
+    --good: #0f8a5f;
+    --shadow: 0 1px 2px rgba(13,26,43,.05), 0 8px 24px -12px rgba(13,26,43,.18);
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Code", "Menlo", monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0a1017;
+      --surface: #101c2b;
+      --surface-2: #0d1725;
+      --ink: #e7eef7;
+      --ink-soft: #a3b3c8;
+      --ink-faint: #6f8199;
+      --hair: #1e2f44;
+      --hair-strong: #2a3e58;
+      --accent: #4c9bf0;
+      --accent-2: #35b6d6;
+      --accent-ink: #9cc8f5;
+      --sev-high: #ff6d80; --sev-high-bg: #2a151b;
+      --sev-mod: #e0a24a; --sev-mod-bg: #271d10;
+      --sev-low: #93a6c0; --sev-low-bg: #16202f;
+      --good: #43c493;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground:#eef2f7; --surface:#fff; --surface-2:#f5f8fc; --ink:#0d1a2b; --ink-soft:#46586e;
+    --ink-faint:#7688a0; --hair:#d8e1ec; --hair-strong:#c3d0e0; --accent:#0b6bcb; --accent-2:#0a8ca8;
+    --accent-ink:#084a8f; --sev-high:#d1344a; --sev-high-bg:#fdecef; --sev-mod:#b56a00; --sev-mod-bg:#fbf1df;
+    --sev-low:#566b86; --sev-low-bg:#eef2f7; --good:#0f8a5f;
+    --shadow:0 1px 2px rgba(13,26,43,.05), 0 8px 24px -12px rgba(13,26,43,.18);
+  }
+  :root[data-theme="dark"] {
+    --ground:#0a1017; --surface:#101c2b; --surface-2:#0d1725; --ink:#e7eef7; --ink-soft:#a3b3c8;
+    --ink-faint:#6f8199; --hair:#1e2f44; --hair-strong:#2a3e58; --accent:#4c9bf0; --accent-2:#35b6d6;
+    --accent-ink:#9cc8f5; --sev-high:#ff6d80; --sev-high-bg:#2a151b; --sev-mod:#e0a24a; --sev-mod-bg:#271d10;
+    --sev-low:#93a6c0; --sev-low-bg:#16202f; --good:#43c493;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 100% -10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
+      var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: clamp(20px, 4vw, 56px) clamp(16px, 4vw, 40px) 72px; }
+
+  /* ---- header ---- */
+  header { margin-bottom: 44px; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent-ink); font-weight: 600;
+    padding: 6px 12px; border: 1px solid var(--hair-strong); border-radius: 999px; background: var(--surface);
+  }
+  .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--sev-high);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--sev-high) 60%, transparent); animation: pulse 2.4s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--sev-high) 55%,transparent);} 70%{box-shadow:0 0 0 8px transparent;} 100%{box-shadow:0 0 0 0 transparent;} }
+  @media (prefers-reduced-motion: reduce) { .eyebrow .dot { animation: none; } }
+
+  h1 {
+    font-size: clamp(2rem, 4.6vw, 3.35rem); line-height: 1.04; letter-spacing: -.02em;
+    font-weight: 800; margin: 22px 0 0; max-width: 16ch; text-wrap: balance;
+  }
+  h1 .grad { background: linear-gradient(96deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { margin: 18px 0 0; max-width: 62ch; font-size: 1.12rem; color: var(--ink-soft); }
+  .thesis {
+    margin-top: 26px; padding: 16px 20px; border-left: 3px solid var(--accent);
+    background: var(--surface); border-radius: 0 12px 12px 0; box-shadow: var(--shadow);
+    font-size: 1.02rem; max-width: 70ch;
+  }
+  .thesis b { color: var(--ink); }
+
+  /* ---- section framing ---- */
+  section { margin-top: 52px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .sec-head h2 { font-size: 1.05rem; letter-spacing: .02em; margin: 0; font-weight: 700; }
+  .sec-num { font-family: var(--mono); font-size: .8rem; color: var(--accent-ink); font-weight: 600; }
+  .sec-head p { margin: 0; color: var(--ink-faint); font-size: .92rem; }
+  .sec-rule { flex: 1; height: 1px; background: var(--hair); min-width: 20px; align-self: center; }
+
+  /* ---- legend ---- */
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px; font-size: .82rem; font-weight: 600;
+    padding: 6px 12px 6px 10px; border-radius: 999px; border: 1px solid var(--hair-strong); background: var(--surface);
+  }
+  .chip .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .sw.high { background: var(--sev-high); } .sw.mod { background: var(--sev-mod); } .sw.low { background: var(--sev-low); }
+
+  /* ---- alert grid ---- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 16px; }
+  .card {
+    position: relative; background: var(--surface); border: 1px solid var(--hair);
+    border-radius: 14px; padding: 18px 20px 18px 22px; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px; }
+  .card.high::before { background: var(--sev-high); }
+  .card.mod::before  { background: var(--sev-mod); }
+  .card.low::before  { background: var(--sev-low); }
+  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+  .rid { font-family: var(--mono); font-size: .78rem; color: var(--ink-soft); font-weight: 600; }
+  .sev {
+    font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 6px;
+  }
+  .sev.high { color: var(--sev-high); background: var(--sev-high-bg); }
+  .sev.mod  { color: var(--sev-mod);  background: var(--sev-mod-bg); }
+  .sev.low  { color: var(--sev-low);  background: var(--sev-low-bg); }
+  .card h3 { margin: 6px 0 0; font-size: 1.08rem; letter-spacing: -.01em; line-height: 1.2; }
+  .trigger { margin: 10px 0 0; font-size: .93rem; color: var(--ink-soft); }
+  .trigger .n { font-family: var(--mono); font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums;
+    background: var(--surface-2); padding: 1px 5px; border-radius: 5px; white-space: nowrap; }
+  .meta { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--hair-strong);
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .78rem; color: var(--ink-faint); }
+  .meta .vital { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--ink-soft); }
+  .meta .cite { font-family: var(--mono); font-size: .72rem; }
+
+  .kind-tag { display:inline-flex; align-items:center; gap:7px; font-size:.82rem; color:var(--ink-faint); font-weight:600; }
+  .kind-tag::before { content:""; width:18px; height:2px; border-radius:2px; background: var(--accent); }
+  .kind-tag.trend::before { background: var(--accent); background-image: repeating-linear-gradient(90deg, var(--accent) 0 4px, transparent 4px 7px); }
+
+  /* ---- governance ---- */
+  .rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 14px; }
+  .rule { background: var(--surface); border: 1px solid var(--hair); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow); }
+  .rule .rk { font-family: var(--mono); font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; color: var(--accent-ink); font-weight: 600; }
+  .rule h4 { margin: 8px 0 6px; font-size: 1rem; }
+  .rule p { margin: 0; font-size: .9rem; color: var(--ink-soft); }
+  .rule .n { font-family: var(--mono); font-weight: 600; color: var(--ink); }
+
+  /* ---- pipeline ---- */
+  .pipe { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; background: var(--surface);
+    border: 1px solid var(--hair); border-radius: 16px; padding: 8px; box-shadow: var(--shadow); }
+  .stage { flex: 1 1 150px; min-width: 140px; padding: 18px 16px; border-radius: 11px; }
+  .stage .st-k { font-family: var(--mono); font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+  .stage .st-t { font-weight: 700; margin-top: 6px; font-size: 1rem; }
+  .stage .st-d { font-size: .84rem; color: var(--ink-soft); margin-top: 5px; }
+  .stage.engine { background: linear-gradient(180deg, color-mix(in srgb,var(--accent) 12%, var(--surface)), var(--surface)); border: 1px solid color-mix(in srgb,var(--accent) 30%, var(--hair)); }
+  .arrow { align-self: center; color: var(--accent); font-weight: 700; padding: 0 2px; font-size: 1.1rem; }
+  .writeout { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .writeout span { font-family: var(--mono); font-size: .74rem; font-weight: 600; padding: 3px 9px; border-radius: 7px;
+    background: var(--surface-2); border: 1px solid var(--hair-strong); color: var(--ink-soft); }
+  .safety { margin-top: 16px; display: flex; gap: 12px; align-items: flex-start; font-size: .95rem; color: var(--ink-soft);
+    background: color-mix(in srgb, var(--good) 8%, var(--surface)); border: 1px solid color-mix(in srgb,var(--good) 30%, var(--hair));
+    padding: 14px 18px; border-radius: 12px; }
+  .safety b { color: var(--ink); }
+  .safety .mk { color: var(--good); font-weight: 800; }
+
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--hair); color: var(--ink-faint); font-size: .82rem;
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  footer .mono { font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow"><span class="dot"></span>HF GDMT Optimizer · Remote Monitoring</span>
+    <h1>The alert system that <span class="grad">watches between visits</span>.</h1>
+    <p class="lede">Home-device vitals stream in continuously. Eight deterministic rules decide when a
+      reading means something — early enough to act, specific enough to trust.</p>
+    <p class="thesis">Every rule is <b>pure and deterministic</b> — no <span style="font-family:var(--mono)">Date.now</span>,
+      no I/O, the clock is injected. The engine only <b>detects and cites</b>; it never orders, titrates, or
+      prescribes. A clinician accepts each finding before a single FHIR resource is written.</p>
+  </header>
+
+  <section aria-label="Severity legend">
+    <div class="sec-head">
+      <span class="sec-num">00</span><h2>How severity reads</h2>
+      <span class="sec-rule"></span>
+      <p>Semantic color, distinct from the app accent — attention reads at a glance</p>
+    </div>
+    <div class="legend">
+      <span class="chip"><span class="sw high"></span>High — act now</span>
+      <span class="chip"><span class="sw mod"></span>Moderate — review soon</span>
+      <span class="chip"><span class="sw low"></span>Low — note the trend</span>
+      <span class="chip"><span class="kind-tag">Threshold rule</span></span>
+      <span class="chip"><span class="kind-tag trend">Predictive trend rule</span></span>
+    </div>
+  </section>
+
+  <section aria-label="Threshold alerts">
+    <div class="sec-head">
+      <span class="sec-num">01</span><h2>Threshold alerts — a hard breach</h2>
+      <span class="sec-rule"></span>
+      <p>Six rules · fluid retention + the vitals that gate GDMT titration</p>
+    </div>
+    <div class="grid">
+
+      <article class="card high">
+        <div class="card-top"><span class="rid">weight-gain-7d</span><span class="sev high">High</span></div>
+        <h3>Possible fluid retention — weekly</h3>
+        <p class="trigger">Weight rose <span class="n">≥ 2.3 kg</span> (~5 lb) over <span class="n">7 days</span> — a classic sign of HF decompensation.</p>
+        <div class="meta"><span class="vital">⚖️ Weight</span><span class="cite">HFSA self-care</span></div>
+      </article>
+
+      <article class="card mod">
+        <div class="card-top"><span class="rid">weight-gain-1d</span><span class="sev mod">Moderate</span></div>
+        <h3>Overnight weight jump</h3>
+        <p class="trigger">Weight rose <span class="n">≥ 0.9 kg</span> (~2 lb) overnight (a <span class="n">~1.5-day</span> window).</p>
+        <div class="meta"><span class="vital">⚖️ Weight</span><span class="cite">HFSA self-care</span></div>
+      </article>
+
+      <article class="card high">
+        <div class="card-top"><span class="rid">hypoxia</span><span class="sev high">High</span></div>
+        <h3>Low oxygen saturation</h3>
+        <p class="trigger">SpO₂ measured <span class="n">&lt; 90%</span> — a general red flag warranting review.</p>
+        <div class="meta"><span class="vital">🫁 SpO₂</span><span class="cite">Red-flag SpO₂</span></div>
+      </article>
+
+      <article class="card mod">
+        <div class="card-top"><span class="rid">hypotension</span><span class="sev mod">Moderate</span></div>
+        <h3>Low blood pressure</h3>
+        <p class="trigger">Systolic BP <span class="n">&lt; 90 mmHg</span> — titration-limiting for ARNI / ACEi / ARB and SGLT2i.</p>
+        <div class="meta"><span class="vital">🩸 Blood pressure</span><span class="cite">§7.3.1 RAAS</span></div>
+      </article>
+
+      <article class="card mod">
+        <div class="card-top"><span class="rid">bradycardia</span><span class="sev mod">Moderate</span></div>
+        <h3>Bradycardia</h3>
+        <p class="trigger">Heart rate <span class="n">&lt; 50 bpm</span> — limits beta-blocker initiation or up-titration.</p>
+        <div class="meta"><span class="vital">💓 Heart rate</span><span class="cite">§7.3.2 β-blocker</span></div>
+      </article>
+
+      <article class="card low">
+        <div class="card-top"><span class="rid">tachycardia</span><span class="sev low">Low</span></div>
+        <h3>Resting tachycardia</h3>
+        <p class="trigger">Sustained resting heart rate <span class="n">&gt; 100 bpm</span>. Mutually exclusive with bradycardia.</p>
+        <div class="meta"><span class="vital">💓 Heart rate</span><span class="cite">§7.3.2 β-blocker</span></div>
+      </article>
+
+    </div>
+  </section>
+
+  <section aria-label="Predictive trend alerts">
+    <div class="sec-head">
+      <span class="sec-num">02</span><h2>Predictive alerts — early warning</h2>
+      <span class="sec-rule"></span>
+      <p>Two trend rules · catch the slide days before a hard threshold breaks</p>
+    </div>
+    <div class="grid">
+
+      <article class="card mod">
+        <div class="card-top"><span class="rid">weight-trend-rising</span><span class="sev mod">Moderate</span></div>
+        <h3>Upward weight trend</h3>
+        <p class="trigger"><span class="n">≥ 3</span> consecutive rising readings totalling <span class="n">≥ 0.6 kg</span> — while still <span class="n">under</span> the 2.3 kg acute line.</p>
+        <div class="meta"><span class="kind-tag trend">Predictive</span><span class="cite">HFSA self-care</span></div>
+      </article>
+
+      <article class="card mod">
+        <div class="card-top"><span class="rid">spo2-trend-decline</span><span class="sev mod">Moderate</span></div>
+        <h3>Declining oxygen trend</h3>
+        <p class="trigger">A relative <span class="n">≥ 4%</span> drop over <span class="n">3 days</span> while the latest reading is still <span class="n">≥ 90%</span>.</p>
+        <div class="meta"><span class="kind-tag trend">Predictive</span><span class="cite">Red-flag SpO₂</span></div>
+      </article>
+
+    </div>
+  </section>
+
+  <section aria-label="Firing rules">
+    <div class="sec-head">
+      <span class="sec-num">03</span><h2>The rules that govern firing</h2>
+      <span class="sec-rule"></span>
+      <p>Why the engine stays quiet until it should not</p>
+    </div>
+    <div class="rules">
+      <div class="rule">
+        <div class="rk">Recency gate</div>
+        <h4>Never alert on stale data</h4>
+        <p>Any reading older than <span class="n">14 days</span> is ignored — a device that stopped reporting can't raise a <em>new</em> live alert.</p>
+      </div>
+      <div class="rule">
+        <div class="rk">Suppression</div>
+        <h4>Predictive yields to acute</h4>
+        <p>A trend rule fires <span class="n">only</span> when its hard-threshold counterpart did not — no double-flagging the same decline.</p>
+      </div>
+      <div class="rule">
+        <div class="rk">Exclusivity</div>
+        <h4>One heart-rate verdict</h4>
+        <p>Bradycardia and tachycardia are mutually exclusive — a single HR reading resolves to at most one.</p>
+      </div>
+      <div class="rule">
+        <div class="rk">Outcome loop</div>
+        <h4>Improved vs. still abnormal</h4>
+        <p>Re-evaluation anchors the clock to the <em>latest</em> reading, so closing a Task reflects the true last value — not wall-clock staleness.</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-label="Pipeline">
+    <div class="sec-head">
+      <span class="sec-num">04</span><h2>From a home reading to a chart action</h2>
+      <span class="sec-rule"></span>
+      <p>Same pure engine, whether the app or a FHIR Subscription invokes it</p>
+    </div>
+    <div class="pipe">
+      <div class="stage">
+        <div class="st-k">FHIR</div>
+        <div class="st-t">Vital Observation</div>
+        <div class="st-d">Home scale, cuff, pulse-ox → <span style="font-family:var(--mono)">Observation?category=vital-signs</span>.</div>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="stage">
+        <div class="st-k">Trigger</div>
+        <div class="st-t">Subscription</div>
+        <div class="st-d">A rest-hook Subscription notifies the alert service on each new vital.</div>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="stage engine">
+        <div class="st-k">Pure engine</div>
+        <div class="st-t">evaluateAlerts()</div>
+        <div class="st-d">The 8 rules run — detect &amp; cite only. Shared by the app, the service, and the tests.</div>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="stage">
+        <div class="st-k">Clinician-accepted</div>
+        <div class="st-t">Write back</div>
+        <div class="writeout"><span>DetectedIssue</span><span>Flag</span><span>Task</span></div>
+        <div class="st-d">Idempotent, linked to the triggering Observation.</div>
+      </div>
+    </div>
+    <div class="safety">
+      <span class="mk" aria-hidden="true">✓</span>
+      <div><b>The engine decides; the clinician acts.</b> Detection is automatic and auditable; every alert
+        carries the numbers that fired it, a guideline citation, and the exact readings behind it. Nothing is
+        ordered or prescribed without a human accept.</div>
+    </div>
+  </section>
+
+  <footer>
+    <span>HF GDMT Optimizer — remote-monitoring alert engine · <span class="mono">src/engine/alerts.ts</span></span>
+    <span class="mono">8 rules · 6 threshold · 2 predictive</span>
+  </footer>
+</div>
+
+</body>
+</html>

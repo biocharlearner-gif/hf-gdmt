@@ -8,6 +8,7 @@
     { "source": "/cds-services/:service", "destination": "/api/cds-services/:service" },
     { "source": "/notify", "destination": "/api/notify" },
     { "source": "/health", "destination": "/api/health" },
+    { "source": "/alert-system", "destination": "/alert-system.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
