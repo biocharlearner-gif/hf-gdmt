@@ -1,101 +1,185 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  Alert, Avatar, Box, Button, CircularProgress, Container, Divider,
+  InputAdornment, Paper, TextField, Typography,
+} from "@mui/material";
+import PersonSearchIcon from "@mui/icons-material/PersonSearch";
+import BadgeOutlinedIcon from "@mui/icons-material/BadgeOutlined";
+import LogoutIcon from "@mui/icons-material/Logout";
 import { getSession, getClient, setSelectedPatient } from "../session";
 
 interface Hit { id: string; name: string; birthDate?: string; gender?: string }
 
 function humanName(p: any): string {
-    const n = p?.name?.[0];
-    if (!n) return "Unknown";
-    if (n.text) return n.text;
-    return [(n.given ?? []).join(" "), n.family].filter(Boolean).join(" ") || "Unknown";
+  const n = p?.name?.[0];
+  if (!n) return "Unknown";
+  if (n.text) return n.text;
+  return [(n.given ?? []).join(" "), n.family].filter(Boolean).join(" ") || "Unknown";
+}
+
+function initialsOf(name: string): string {
+  return name.split(/\s+/).map((s) => s[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
 }
 
 export default function PatientSelect() {
-    const navigate = useNavigate();
-    const [family, setFamily] = useState("");
-    const [given, setGiven] = useState("");
-    const [byId, setById] = useState("");
-    const [hits, setHits] = useState<Hit[] | null>(null);
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [family, setFamily] = useState("");
+  const [given, setGiven] = useState("");
+  const [byId, setById] = useState("");
+  const [hits, setHits] = useState<Hit[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchUnavailable, setSearchUnavailable] = useState(false);
 
-    useEffect(() => {
-        if (!getSession()) navigate("/", { replace: true });
-    }, [navigate]);
+  useEffect(() => {
+    if (!getSession()) navigate("/", { replace: true });
+  }, [navigate]);
 
-    function open(id: string) {
-        setSelectedPatient(id);
-        navigate("/patient");
+  function open(id: string) {
+    if (!id.trim()) return;
+    setSelectedPatient(id.trim());
+    navigate("/patient");
+  }
+
+  async function search(e: React.FormEvent) {
+    e.preventDefault();
+    if (!family.trim() && !given.trim()) {
+      setError("Enter at least a family or given name.");
+      return;
     }
-
-    async function search(e: React.FormEvent) {
-        e.preventDefault();
-        if (!family.trim() && !given.trim()) {
-            setError("Enter at least a family or given name.");
-            return;
-        }
-        setBusy(true); setError(null); setHits(null);
-        try {
-            const params: Record<string, string> = {};
-            if (family.trim()) params.family = family.trim();
-            if (given.trim()) params.given = given.trim();
-            const bundle = await getClient().search("Patient", params);
-            const found: Hit[] = (bundle.entry ?? [])
-                .map((en: any) => en.resource)
-                .filter((r: any) => r?.resourceType === "Patient")
-                .map((p: any) => ({ id: p.id, name: humanName(p), birthDate: p.birthDate, gender: p.gender }));
-            setHits(found);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Search failed");
-        } finally {
-            setBusy(false);
-        }
+    setBusy(true); setError(null); setSearchUnavailable(false); setHits(null);
+    try {
+      const params: Record<string, string> = {};
+      if (family.trim()) params.family = family.trim();
+      if (given.trim()) params.given = given.trim();
+      const bundle = await getClient().search("Patient", params);
+      const found: Hit[] = (bundle.entry ?? [])
+        .map((en: any) => en.resource)
+        .filter((r: any) => r?.resourceType === "Patient")
+        .map((p: any) => ({ id: p.id, name: humanName(p), birthDate: p.birthDate, gender: p.gender }));
+      setHits(found);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Search failed";
+      // Epic gates Patient.Search separately from Patient.Read → a 403 here means the
+      // Search API isn't enabled on the app. Open-by-id still works (Patient.Read).
+      if (/->\s*403/.test(msg) || msg.includes("403")) {
+        setSearchUnavailable(true);
+      } else {
+        setError(msg);
+      }
+    } finally {
+      setBusy(false);
     }
+  }
 
-    return (
-        <div className="page-center">
-            <div className="card">
-                <div className="card-header">
-                    <span className="badge">Provider · Select patient</span>
-                </div>
-                <h1>Find a patient</h1>
-                <p className="subtitle">Search the Epic sandbox, or open a known patient by FHIR id.</p>
+  const rowSx = { display: "flex", gap: 1.5 } as const;
 
-                <form onSubmit={search} className="select-form">
-                    <input className="text-input" placeholder="Family name" value={family}
-                           onChange={(e) => setFamily(e.target.value)} />
-                    <input className="text-input" placeholder="Given name (optional)" value={given}
-                           onChange={(e) => setGiven(e.target.value)} />
-                    <button className="connect-btn" type="submit" disabled={busy}>
-                        {busy ? "Searching…" : "Search"}
-                    </button>
-                </form>
+  return (
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", display: "flex", alignItems: "center", py: 6 }}>
+      <Container maxWidth="sm">
+        <Paper variant="outlined" sx={{ borderRadius: 3, p: { xs: 3, sm: 4 }, boxShadow: "0 1px 3px rgba(16,24,40,0.06)" }}>
+          {/* Header */}
+          <Box sx={{ ...rowSx, alignItems: "center", mb: 0.5 }}>
+            <Avatar variant="rounded" sx={{ bgcolor: "primary.main", width: 40, height: 40 }}>
+              <PersonSearchIcon fontSize="small" />
+            </Avatar>
+            <Box>
+              <Typography variant="overline" color="primary.main" sx={{ display: "block", lineHeight: 1.4 }}>
+                Provider · Select patient
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 700 }}>Find a patient</Typography>
+            </Box>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 3 }}>
+            Search the Epic sandbox by name, or open a known patient by FHIR id.
+          </Typography>
 
-                <div className="select-byid">
-                    <input className="text-input" placeholder="…or paste a Patient FHIR id" value={byId}
-                           onChange={(e) => setById(e.target.value)} />
-                    <button className="action-btn" disabled={!byId.trim()} onClick={() => open(byId.trim())}>
-                        Open by id
-                    </button>
-                </div>
+          {/* Name search */}
+          <Box component="form" onSubmit={search}>
+            <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, gap: 1.5 }}>
+              <TextField
+                fullWidth size="small" label="Family name" value={family}
+                onChange={(e) => setFamily(e.target.value)}
+              />
+              <TextField
+                fullWidth size="small" label="Given name (optional)" value={given}
+                onChange={(e) => setGiven(e.target.value)}
+              />
+            </Box>
+            <Button
+              type="submit" fullWidth variant="contained" disabled={busy}
+              startIcon={busy ? <CircularProgress size={16} color="inherit" /> : <PersonSearchIcon />}
+              sx={{ mt: 1.5, py: 1 }}
+            >
+              {busy ? "Searching…" : "Search"}
+            </Button>
+          </Box>
 
-                {error && <div className="error-box">{error}</div>}
+          {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+          {searchUnavailable && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Name search isn’t enabled on this Epic app (needs the <strong>Patient.Search</strong> API).
+              Open a patient by <strong>FHIR id</strong> below.
+            </Alert>
+          )}
 
-                {hits && (
-                    <div className="hit-list">
-                        {hits.length === 0 && <p className="subtitle">No patients found.</p>}
-                        {hits.map((h) => (
-                            <button className="hit-row" key={h.id} onClick={() => open(h.id)}>
-                                <span className="hit-name">{h.name}</span>
-                                <span className="hit-meta">{h.gender ?? "?"} · {h.birthDate ?? "?"}</span>
-                            </button>
-                        ))}
-                    </div>
-                )}
+          {/* Results */}
+          {hits && (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mt: 2 }}>
+              {hits.length === 0 && (
+                <Typography variant="body2" color="text.secondary">No patients found.</Typography>
+              )}
+              {hits.map((h) => (
+                <Paper
+                  key={h.id} variant="outlined"
+                  onClick={() => open(h.id)}
+                  sx={{
+                    p: 1.5, borderRadius: 2, display: "flex", alignItems: "center", gap: 1.5, cursor: "pointer",
+                    "&:hover": { borderColor: "primary.main", bgcolor: "action.hover" },
+                  }}
+                >
+                  <Avatar sx={{ width: 34, height: 34, bgcolor: "primary.light", fontSize: 13, fontWeight: 700 }}>
+                    {initialsOf(h.name)}
+                  </Avatar>
+                  <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{h.name}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {h.gender ?? "?"} · {h.birthDate ?? "?"}
+                    </Typography>
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
 
-                <button className="connect-btn secondary" onClick={() => navigate("/")}>← Disconnect</button>
-            </div>
-        </div>
-    );
+          <Divider sx={{ my: 3 }}>or</Divider>
+
+          {/* Open by FHIR id */}
+          <Box sx={rowSx}>
+            <TextField
+              fullWidth size="small" placeholder="Paste a Patient FHIR id" value={byId}
+              onChange={(e) => setById(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") open(byId); }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start"><BadgeOutlinedIcon fontSize="small" color="action" /></InputAdornment>
+                  ),
+                },
+              }}
+            />
+            <Button variant="outlined" disabled={!byId.trim()} onClick={() => open(byId)} sx={{ flexShrink: 0 }}>
+              Open by id
+            </Button>
+          </Box>
+
+          <Divider sx={{ my: 3 }} />
+          <Button fullWidth color="inherit" startIcon={<LogoutIcon />} onClick={() => navigate("/")}>
+            Disconnect
+          </Button>
+        </Paper>
+      </Container>
+    </Box>
+  );
 }

@@ -76,7 +76,12 @@ Builds on `docs/EPIC-LAUNCH.md` STEP A. Deltas for provider-facing:
 Today `VITE_SMART_SCOPE` is one string shared by `Launch.tsx` and `EhrLaunch.tsx`. Two flows need
 two scope sets:
 - **EHR launch** (`EhrLaunch.tsx`): `openid fhirUser launch online_access patient/Patient.read patient/Condition.read patient/Observation.read patient/MedicationRequest.read patient/AllergyIntolerance.read patient/Encounter.read`
-- **Provider standalone** (`Launch.tsx`): `openid fhirUser launch/patient user/Patient.read user/Condition.read user/Observation.read user/MedicationRequest.read user/AllergyIntolerance.read user/Encounter.read`
+- **Provider standalone** (`Launch.tsx`): `openid fhirUser user/Patient.read user/Condition.read user/Observation.read user/MedicationRequest.read user/AllergyIntolerance.read user/Encounter.read`
+  - **DO NOT add `launch/patient`.** On Epic that scope forces the PATIENT (MyChart) login,
+    which rejects provider accounts (FHIR/FHIRTWO → "login failed"). Provider standalone uses
+    `user/*` with no patient-context scope → Epic shows the PROVIDER login → token has no patient
+    → app routes to `/select` (Phase 2 search). Verified symptom 2026-07-21: `launch/patient` in the
+    live standalone scope landed on `mychart-fhir/Authentication/Login` and rejected FHIR/FHIRTWO.
 
 Options (pick at review):
 - **(a)** Add `VITE_SMART_SCOPE_EHR` + `VITE_SMART_SCOPE_STANDALONE` env vars (cleanest, explicit).
