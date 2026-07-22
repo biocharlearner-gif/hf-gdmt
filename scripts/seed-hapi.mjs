@@ -57,6 +57,11 @@ const PEOPLE = [
     hf: true, code: { system: ICD10, code: "I50.9", display: "Heart failure, unspecified" } /* no LVEF → needsEf */ },
   { mrn: "HF-005", first: "Sofia", last: "Lindqvist", gender: "female", dob: "1970-01-30",
     hf: true, code: { system: SNOMED, code: "42343007", display: "Congestive heart failure" }, lvef: 46 },
+  // COMPOSITE teaching case — one HFrEF patient that shows ALL FOUR pillar states at once
+  // (RAAS on-target, beta-blocker sub-target/overdue, MRA contraindicated by K+, SGLT2i gap-eligible)
+  // plus a post-discharge risk signal + weight-gain alert. Used by the demo narration.
+  { mrn: "HF-009", first: "Harold", last: "Danforth", gender: "male", dob: "1950-05-21",
+    hf: true, code: { system: SNOMED, code: "703272007", display: "Heart failure with reduced ejection fraction" }, lvef: 30 },
   // HF code but INACTIVE → must be excluded by the cohort query
   { mrn: "HF-006", first: "Raymond", last: "Tan", gender: "male", dob: "1951-08-09",
     hf: false, code: { system: SNOMED, code: "84114007", display: "Heart failure" },
@@ -203,6 +208,8 @@ const VITALS = {
   "HF-003": { weights: [65.6, 65.9, 66.3, 66.6], sbp: [122, 123, 124, 124], hr: [74, 75, 76, 76], spo2: [98, 96, 95, 93] },
   "HF-004": { weights: [91.0, 91.2, 91.1], sbp: [130, 131, 132], hr: [56, 50, 46], spo2: [97, 96, 96] },
   "HF-005": { weights: [70.5, 70.6, 70.4, 70.7], sbp: [120, 119, 121, 120], hr: [78, 80, 79, 80], spo2: [95, 93, 91, 88] },
+  // Composite case → +2.6 kg over the week → weight-gain decompensation alert (high); other vitals stable.
+  "HF-009": { weights: [80.0, 80.4, 81.1, 81.6, 82.0, 82.3, 82.6], sbp: [116, 118, 117, 119, 118, 120, 118], hr: [70, 71, 72, 71, 72, 72, 72], spo2: [97, 97, 96, 96, 97, 96, 96] },
 };
 
 /**
@@ -240,6 +247,8 @@ const LABS = {
   "HF-002": { k: 4.5, egfr: 72, cr: 1.1, ntprobnp: 850 },
   "HF-003": { k: 5.2, egfr: 58, cr: 1.3, ntprobnp: 1200 },
   "HF-005": { k: 4.4, egfr: 80, cr: 0.9, ntprobnp: 320 },
+  // Composite case → K+ 5.2 blocks MRA (> 5.0) but not RAASi (<= 5.5); eGFR 55 keeps SGLT2i eligible.
+  "HF-009": { k: 5.2, egfr: 55, cr: 1.2, ntprobnp: 1500 },
 };
 
 /**
@@ -285,6 +294,12 @@ const MEDS = {
   "HF-005": [
     { name: "Empagliflozin", rxnorm: "1545658", doseMg: 10, freq: 1, text: "10 mg once daily" },
   ],
+  // Composite case: ARNI at target (400 mg/day) → ON_TARGET; carvedilol 12.5 mg/day (60 days)
+  // → sub-target + overdue for up-titration. No MRA (→ contraindicated by K+) and no SGLT2i (→ gap).
+  "HF-009": [
+    { name: "Sacubitril/valsartan", rxnorm: "1656340", doseMg: 200, freq: 2, text: "97/103 mg twice daily" },
+    { name: "Carvedilol", rxnorm: "20352", doseMg: 6.25, freq: 2, text: "6.25 mg twice daily", authoredDaysAgo: 60 },
+  ],
 };
 
 /**
@@ -296,6 +311,7 @@ const MEDS = {
 const HOSPITALIZATIONS = {
   "HF-001": { dischargeDaysAgo: 12, reason: "Acute decompensated heart failure" },
   "HF-005": { dischargeDaysAgo: 60, reason: "Heart failure exacerbation" },
+  "HF-009": { dischargeDaysAgo: 12, reason: "Acute decompensated heart failure" },
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
