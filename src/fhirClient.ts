@@ -1,4 +1,4 @@
-import type { SmartTokens } from "./smartAuth";
+import type { SmartTokens } from "./smartAuth"; 
 
 /**
  * FHIR client with a READ base URL and a separate WRITE base URL — this is the
